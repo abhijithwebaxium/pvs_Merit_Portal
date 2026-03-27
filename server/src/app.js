@@ -65,37 +65,17 @@ app.get('/health', (req, res) => {
 import v2Routes from './routes/v2/index.js';
 app.use(v2Routes);
 
-// Debug: Log all registered routes (only in development)
-if (process.env.NODE_ENV === 'development') {
-  console.log('\n========================================');
-  console.log('Registered Routes:');
-  console.log('========================================');
-
-  const printRoutes = (stack, prefix = '') => {
-    stack.forEach((middleware) => {
-      if (middleware.route) {
-        // Route middleware
-        const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
-        console.log(`${methods} ${prefix}${middleware.route.path}`);
-      } else if (middleware.name === 'router') {
-        // Router middleware
-        const routerPath = middleware.regexp.source
-          .replace('\\/?', '')
-          .replace('(?=\\/|$)', '')
-          .replace(/\\\//g, '/')
-          .replace('^', '')
-          .replace('$', '');
-
-        if (middleware.handle.stack) {
-          printRoutes(middleware.handle.stack, prefix + routerPath);
-        }
-      }
-    });
-  };
-
-  printRoutes(app._router.stack);
-  console.log('========================================\n');
-}
+// Debug: Log registered routes (will be called after server starts)
+app.logRoutes = () => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('POST /api/v2/auth/login');
+    console.log('POST /api/v2/auth/logout');
+    console.log('GET /api/v2/auth/me');
+    console.log('GET /api/v2/branches');
+    console.log('GET /api/v2/employees');
+    console.log('========================================\n');
+  }
+};
 
 // Error handling
 app.use(notFound);
