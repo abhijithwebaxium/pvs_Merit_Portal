@@ -11,7 +11,9 @@
     "seed:users": "node src/scripts/seedUsers.js",
     "sql:create": "node src/scripts/createSQLTables.js",
     "sql:migrate": "node src/scripts/migrateMongoToSQL.js",
-    "merit:init": "node src/scripts/initMeritDatabase.js"
+    "merit:init": "node src/scripts/initMeritDatabase.js",
+    "merit:seed-hr": "node src/scripts/seedInitialHR.js",
+    "merit:setup": "node src/scripts/initMeritDatabase.js && node src/scripts/seedInitialHR.js"
   },
   "keywords": [],
   "author": "",
