@@ -7,10 +7,6 @@
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
-    "seed": "node src/utils/seedDatabase.js",
-    "seed:users": "node src/scripts/seedUsers.js",
-    "sql:create": "node src/scripts/createSQLTables.js",
-    "sql:migrate": "node src/scripts/migrateMongoToSQL.js",
     "merit:init": "node src/scripts/initMeritDatabase.js",
     "merit:seed-hr": "node src/scripts/seedInitialHR.js",
     "merit:setup": "node src/scripts/initMeritDatabase.js && node src/scripts/seedInitialHR.js",
@@ -28,7 +24,6 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "ldapts": "^8.1.6",
-    "mongoose": "^9.0.0",
     "mssql": "^12.2.0",
     "nodemailer": "^8.0.1",
     "nodemon": "^3.1.11",

@@ -57,11 +57,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API Routes (MongoDB - COMMENTED OUT)
-// import routes from './routes/index.js';
-// app.use(routes);
-
-// V2 API Routes (SQL Server - PRIMARY)
+// API Routes
 import v2Routes from './routes/v2/index.js';
 app.use(v2Routes);
 

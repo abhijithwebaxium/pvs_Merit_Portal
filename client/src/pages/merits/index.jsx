@@ -317,16 +317,29 @@ const Merits = () => {
     {
       field: "meritIncrease",
       headerName: "Merit Increase",
-      width: 140,
-      minWidth: 120,
-      flex: 0.8,
+      width: 180,
+      minWidth: 160,
+      flex: 1,
       renderCell: (params) => {
         if (params.row.salaryType === "Hourly") {
           const merit = params.row.meritIncreaseDollar || 0;
           return merit > 0 ? `$${merit.toFixed(2)}/hr` : "-";
         } else {
           const merit = params.row.meritIncreasePercentage || 0;
-          return merit > 0 ? `${merit}%` : "-";
+          const annualSalary = params.row.annualSalary || 0;
+          if (merit === 0) return "-";
+          // Calculate dollar amount from percentage
+          const dollarAmount = (annualSalary * merit) / 100;
+          return (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+              <Typography sx={{ fontWeight: "bold", fontSize: "0.875rem" }}>
+                {merit}%
+              </Typography>
+              <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
+                (${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+              </Typography>
+            </Box>
+          );
         }
       },
     },
@@ -514,6 +527,8 @@ const Merits = () => {
   const calculateTeamVariance = () => {
     let totalPercentage = 0;
     let count = 0;
+    let totalBudgetPool = 0; // Total dollar amount allocated for merits
+    let totalSalaryBase = 0; // Total annual salary base for calculating 3% budget
 
     employees.forEach((emp) => {
       if (emp.salaryType === "Hourly") {
@@ -522,23 +537,35 @@ const Merits = () => {
         if (currentRate > 0 && meritDollar > 0) {
           const percentIncrease = (meritDollar / currentRate) * 100;
           totalPercentage += percentIncrease;
+          // For hourly, calculate annual impact: hourlyMerit * hoursPerYear
+          // Assuming 2080 hours per year (40 hours/week * 52 weeks)
+          totalBudgetPool += meritDollar * 2080;
+          // Add annual salary base for this employee
+          totalSalaryBase += currentRate * 2080;
           count++;
         }
       } else {
         const merit = parseFloat(emp.meritIncreasePercentage) || 0;
-        if (merit > 0) {
+        const annualSalary = parseFloat(emp.annualSalary) || 0;
+        if (merit > 0 && annualSalary > 0) {
           totalPercentage += merit;
+          // For salaried, calculate dollar impact
+          totalBudgetPool += (annualSalary * merit) / 100;
+          // Add annual salary base for this employee
+          totalSalaryBase += annualSalary;
           count++;
         }
       }
     });
 
-    if (count === 0) return { average: 0, variance: 0, count: 0 };
+    if (count === 0) return { average: 0, variance: 0, count: 0, budgetPool: 0, threePercentBudget: 0 };
 
     const average = totalPercentage / count;
     const variance = average - 3;
+    // Calculate what 3% of the total salary base would be
+    const threePercentBudget = (totalSalaryBase * 3) / 100;
 
-    return { average, variance, count };
+    return { average, variance, count, budgetPool: totalBudgetPool, threePercentBudget };
   };
 
   const teamVariance = calculateTeamVariance();
@@ -565,28 +592,93 @@ const Merits = () => {
             flexDirection: "column",
           }}
         >
-          <Box sx={{ textAlign: "right" }}>
-            <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", fontWeight: "medium" }}
-            >
-              TEAM AVERAGE MERIT
-            </Typography>
-            <Typography
-              variant="h5"
-              sx={{ fontWeight: "bold", color: "primary.main" }}
-            >
-              {teamVariance.average.toFixed(2)}%
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{
-                color: teamVariance.variance > 0 ? "error.main" : teamVariance.variance < 0 ? "warning.main" : "success.main",
-                fontWeight: "medium"
-              }}
-            >
-              {teamVariance.variance > 0 ? "+" : ""}{teamVariance.variance.toFixed(2)}% from 3% budget
-            </Typography>
+          <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
+            <Box sx={{ textAlign: "right" }}>
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontWeight: "medium" }}
+              >
+                CUMULATIVE VARIANCE
+              </Typography>
+              <Typography
+                variant="h5"
+                sx={{ fontWeight: "bold", color: "info.main" }}
+              >
+                3%
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontWeight: "medium" }}
+              >
+                Target budget allocation
+              </Typography>
+            </Box>
+
+            <Box sx={{ textAlign: "right" }}>
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontWeight: "medium" }}
+              >
+                3% BUDGET POOL
+              </Typography>
+              <Typography
+                variant="h5"
+                sx={{ fontWeight: "bold", color: "info.main" }}
+              >
+                ${teamVariance.threePercentBudget.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontWeight: "medium" }}
+              >
+                3% of total salaries
+              </Typography>
+            </Box>
+
+            <Box sx={{ textAlign: "right" }}>
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontWeight: "medium" }}
+              >
+                TEAM AVERAGE MERIT
+              </Typography>
+              <Typography
+                variant="h5"
+                sx={{ fontWeight: "bold", color: "primary.main" }}
+              >
+                {teamVariance.average.toFixed(2)}%
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: teamVariance.variance > 0 ? "error.main" : teamVariance.variance < 0 ? "warning.main" : "success.main",
+                  fontWeight: "medium"
+                }}
+              >
+                {teamVariance.variance > 0 ? "+" : ""}{teamVariance.variance.toFixed(2)}% from 3% budget
+              </Typography>
+            </Box>
+
+            <Box sx={{ textAlign: "right" }}>
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontWeight: "medium" }}
+              >
+                NEW BUDGET POOL
+              </Typography>
+              <Typography
+                variant="h5"
+                sx={{ fontWeight: "bold", color: "secondary.main" }}
+              >
+                ${teamVariance.budgetPool.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontWeight: "medium" }}
+              >
+                Total annual merit increase
+              </Typography>
+            </Box>
           </Box>
 
           {unsubmittedEmployees.length > 0 && (
