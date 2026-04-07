@@ -23,6 +23,7 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import SearchIcon from "@mui/icons-material/Search";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
+import RestoreIcon from "@mui/icons-material/Restore";
 import AddEmployeeModal from "../../components/modals/AddEmployeeModal";
 import UploadEmployeesModal from "../../components/modals/UploadEmployeesModal";
 import EditEmployeeModal from "../../components/modals/EditEmployeeModal";
@@ -37,12 +38,15 @@ const Employees = () => {
   const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [openModal, setOpenModal] = useState(false);
   const [openUploadModal, setOpenUploadModal] = useState(false);
   const [openEditModal, setOpenEditModal] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [openDeleteAllDialog, setOpenDeleteAllDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [openResetDialog, setOpenResetDialog] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState("");
@@ -182,6 +186,41 @@ const Employees = () => {
     }
   };
 
+  const handleResetClick = () => {
+    setOpenResetDialog(true);
+  };
+
+  const handleCloseResetDialog = () => {
+    setOpenResetDialog(false);
+  };
+
+  const handleConfirmReset = async () => {
+    setResetting(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await api.post("/v2/employees/reset-merits");
+      setOpenResetDialog(false);
+      await fetchEmployees(); // Refresh the list
+
+      // Show success message
+      const message = response.data?.message || "Merit data has been successfully restored to upload state!";
+      setSuccess(message);
+
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => setSuccess(""), 5000);
+    } catch (err) {
+      const errorMessage =
+        err.response?.data?.message ||
+        err.message ||
+        "An error occurred while resetting merit data";
+      setError(errorMessage);
+    } finally {
+      setResetting(false);
+    }
+  };
+
   // Extract unique companies from all employees
   const uniqueCompanies = [
     ...new Set(employees.map((emp) => emp.company).filter((name) => name)),
@@ -311,8 +350,14 @@ const Employees = () => {
       </Typography>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
           {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess("")}>
+          {success}
         </Alert>
       )}
 
@@ -408,14 +453,30 @@ const Employees = () => {
                 Upload Excel
               </Button>
               {isHRAdmin && (
-                <Button
-                  variant="contained"
-                  color="error"
-                  startIcon={<DeleteSweepIcon />}
-                  onClick={handleDeleteAllClick}
-                >
-                  Delete All
-                </Button>
+                <>
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    startIcon={<RestoreIcon />}
+                    onClick={handleResetClick}
+                    sx={{
+                      color: "white",
+                      "&:hover": {
+                        backgroundColor: "warning.main",
+                      },
+                    }}
+                  >
+                    Reset
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    startIcon={<DeleteSweepIcon />}
+                    onClick={handleDeleteAllClick}
+                  >
+                    Delete All
+                  </Button>
+                </>
               )}
             </Box>
           </Box>
@@ -501,6 +562,46 @@ const Employees = () => {
             disabled={deleting}
           >
             {deleting ? "Deleting..." : "Yes, Delete All"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reset Merit Data Confirmation Dialog */}
+      <Dialog
+        open={openResetDialog}
+        onClose={handleCloseResetDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reset Merit Data</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to reset all merit data to the upload state?
+          </DialogContentText>
+          <DialogContentText sx={{ mt: 2, color: "warning.main", fontWeight: "bold" }}>
+            This will clear all merit increases, new salaries, approval statuses, and merit history for all employees (except hr@pvschemicals.com).
+          </DialogContentText>
+          <DialogContentText sx={{ mt: 1 }}>
+            Employee base information (name, job title, current salary, etc.) will be preserved.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseResetDialog} disabled={resetting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmReset}
+            variant="contained"
+            color="warning"
+            disabled={resetting}
+            sx={{
+              color: "white",
+              "&:hover": {
+                backgroundColor: "warning.main",
+              },
+            }}
+          >
+            {resetting ? "Resetting..." : "Yes, Reset Merit Data"}
           </Button>
         </DialogActions>
       </Dialog>

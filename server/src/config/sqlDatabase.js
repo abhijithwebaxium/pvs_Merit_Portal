@@ -84,6 +84,7 @@ export const connectSQLDB = async () => {
     // Sync models (creates tables if they don't exist)
     // Using alter: false to avoid modifying existing tables
     // This will only CREATE missing tables, not modify existing ones
+    // Use migration scripts (like addMeritHistoryColumn.js) for schema changes
     await seq.sync({ alter: false });
     console.log('✅ SQL Server tables synchronized');
   } catch (error) {

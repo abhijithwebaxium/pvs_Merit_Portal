@@ -34,7 +34,11 @@ import { selectUser } from "../../store/slices/userSlice";
 import api from "../../utils/api";
 import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import ReplayIcon from "@mui/icons-material/Replay";
+import TimelineIcon from "@mui/icons-material/Timeline";
+import EditIcon from "@mui/icons-material/Edit";
 import { ResubmitBonusModal } from "../../components/NotificationPanel";
+import ModifyMeritModal from "../../components/modals/ModifyMeritModal";
+import MeritTimelineModal from "../../components/modals/MeritTimelineModal";
 
 const Approvals = () => {
   const user = useSelector(selectUser);
@@ -89,6 +93,19 @@ const Approvals = () => {
   const [resubmitModal, setResubmitModal] = useState({
     open: false,
     notification: null,
+  });
+
+  // Modify merit modal
+  const [modifyModal, setModifyModal] = useState({
+    open: false,
+    employee: null,
+    level: null,
+  });
+
+  // Merit timeline modal
+  const [timelineModal, setTimelineModal] = useState({
+    open: false,
+    employee: null,
   });
 
   const fetchApprovals = async () => {
@@ -910,8 +927,8 @@ const Approvals = () => {
     {
       field: "actions",
       headerName: "Actions",
-      minWidth: 180,
-      flex: 0.9,
+      minWidth: 220,
+      flex: 1.1,
       sortable: false,
       renderCell: (params) => {
         const level = params.row.currentPendingLevel;
@@ -1014,7 +1031,7 @@ const Approvals = () => {
           );
 
         return (
-          <Box sx={{ display: "flex", gap: 0.5 }}>
+          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
             <Tooltip title={getTooltipTitle("approve")}>
               <span>
                 <IconButton
@@ -1040,6 +1057,40 @@ const Approvals = () => {
                   }
                 >
                   <CancelIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Modify Merit & Approve">
+              <span>
+                <IconButton
+                  size="small"
+                  color="warning"
+                  disabled={!canPerformAction}
+                  onClick={() => {
+                    setModifyModal({
+                      open: true,
+                      employee: params.row,
+                      level: level,
+                    });
+                  }}
+                >
+                  <EditIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="View Merit Timeline">
+              <span>
+                <IconButton
+                  size="small"
+                  color="info"
+                  onClick={() => {
+                    setTimelineModal({
+                      open: true,
+                      employee: params.row,
+                    });
+                  }}
+                >
+                  <TimelineIcon />
                 </IconButton>
               </span>
             </Tooltip>
@@ -1258,8 +1309,8 @@ const Approvals = () => {
           </Typography>
 
           {/* Status Chips and Bonus Aggregates */}
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2, flexWrap: "wrap", gap: 2 }}>
-            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          <Box sx={{ display: "flex", flexDirection: { xs: "column", lg: "row" }, justifyContent: "space-between", alignItems: { xs: "stretch", lg: "flex-start" }, mb: 2, gap: 2 }}>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
               <Chip
                 icon={<PendingActionsIcon />}
                 label={`Pending: ${totalPending}`}
@@ -1335,9 +1386,9 @@ const Approvals = () => {
             </Box>
 
             {/* Team Merit Statistics and Approve All Button */}
-            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
-              <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-                <Box sx={{ textAlign: "right" }}>
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: { xs: "stretch", lg: "flex-end" }, gap: 1, width: { xs: "100%", lg: "auto" } }}>
+              <Box sx={{ display: "flex", gap: { xs: 2, md: 2 }, alignItems: "flex-start", flexWrap: "wrap", justifyContent: { xs: "space-between", lg: "flex-end" } }}>
+                <Box sx={{ textAlign: "right", minWidth: { xs: "120px", sm: "auto" } }}>
                   <Typography
                     variant="caption"
                     sx={{ color: "text.secondary", fontWeight: "medium", fontSize: "0.65rem" }}
@@ -1358,7 +1409,7 @@ const Approvals = () => {
                   </Typography>
                 </Box>
 
-                <Box sx={{ textAlign: "right" }}>
+                <Box sx={{ textAlign: "right", minWidth: { xs: "120px", sm: "auto" } }}>
                   <Typography
                     variant="caption"
                     sx={{ color: "text.secondary", fontWeight: "medium", fontSize: "0.65rem" }}
@@ -1379,7 +1430,7 @@ const Approvals = () => {
                   </Typography>
                 </Box>
 
-                <Box sx={{ textAlign: "right" }}>
+                <Box sx={{ textAlign: "right", minWidth: { xs: "120px", sm: "auto" } }}>
                   <Typography
                     variant="caption"
                     sx={{ color: "text.secondary", fontWeight: "medium", fontSize: "0.65rem" }}
@@ -1404,7 +1455,7 @@ const Approvals = () => {
                   </Typography>
                 </Box>
 
-                <Box sx={{ textAlign: "right" }}>
+                <Box sx={{ textAlign: "right", minWidth: { xs: "120px", sm: "auto" } }}>
                   <Typography
                     variant="caption"
                     sx={{ color: "text.secondary", fontWeight: "medium", fontSize: "0.65rem" }}
@@ -1444,12 +1495,14 @@ const Approvals = () => {
                     startIcon={<CheckCircleIcon />}
                     onClick={handleOpenBulkApprovalDialog}
                     disabled={approvableCount === 0}
+                    fullWidth={false}
                     sx={{
                       whiteSpace: "nowrap",
                       px: 3,
                       py: 1,
                       fontWeight: 600,
                       fontSize: "0.9rem",
+                      alignSelf: { xs: "stretch", lg: "flex-end" },
                       background: approvableCount > 0
                         ? "linear-gradient(135deg, #4caf50 0%, #45a049 100%)"
                         : "rgba(0, 0, 0, 0.12)",
@@ -1881,6 +1934,26 @@ const Approvals = () => {
           setResubmitModal({ open: false, notification: null });
           fetchApprovals();
         }}
+      />
+
+      {/* Modify Merit Modal */}
+      <ModifyMeritModal
+        open={modifyModal.open}
+        onClose={() => setModifyModal({ open: false, employee: null, level: null })}
+        employee={modifyModal.employee}
+        approverId={user?.id || user?._id}
+        approverLevel={modifyModal.level}
+        onMeritModified={() => {
+          setModifyModal({ open: false, employee: null, level: null });
+          fetchApprovals();
+        }}
+      />
+
+      {/* Merit Timeline Modal */}
+      <MeritTimelineModal
+        open={timelineModal.open}
+        onClose={() => setTimelineModal({ open: false, employee: null })}
+        employee={timelineModal.employee}
       />
 
       {/* Bulk Approval Result Dialog */}

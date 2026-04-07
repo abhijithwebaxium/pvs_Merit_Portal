@@ -19,6 +19,8 @@ import {
   exportToUKG,
   resubmitAndApprove,
   deleteAllEmployees,
+  resetMeritData,
+  modifyAndApproveMerit,
 } from "../../controllers/v2/employeeController.js";
 import { protect } from "../../middlewares/auth.js";
 
@@ -35,6 +37,9 @@ router.post("/:employeeId/bonus-approval", processBonusApproval);
 router.post("/approvals/bulk-approve", bulkApproveAll);
 router.post("/:id/resubmit-and-approve", resubmitAndApprove);
 
+// Merit modification route
+router.post("/:employeeId/modify-and-approve", modifyAndApproveMerit);
+
 // Template download route (before protect middleware to allow download)
 router.get("/template/download", downloadTemplate);
 
@@ -48,6 +53,9 @@ router.post("/bulk", bulkCreateEmployees);
 
 // Delete all employees route (HR Admin only) - MUST be before /:id routes
 router.delete("/delete-all", deleteAllEmployees);
+
+// Reset merit data route (HR Admin only) - MUST be before /:id routes
+router.post("/reset-merits", resetMeritData);
 
 // UKG Export routes - must be before /:id routes
 router.get("/ukg/approvals-status", checkAllApprovalsCompleted);

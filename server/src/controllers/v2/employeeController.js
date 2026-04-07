@@ -487,6 +487,40 @@ export const updateEmployeeMerit = async (req, res, next) => {
       }
     }
 
+    // Get supervisor details for history logging
+    const supervisor = await Employee.findByPk(supervisorId, {
+      attributes: ["id", "fullName", "employeeId"],
+    });
+
+    // Determine if this is an initial assignment or a modification
+    const oldMeritPercentage = employee.meritIncreasePercentage;
+    const oldMeritDollar = employee.meritIncreaseDollar;
+    const isModification = (oldMeritPercentage > 0 || oldMeritDollar > 0);
+
+    // Add to merit history
+    const history = employee.meritHistory || [];
+    const historyEntry = {
+      timestamp: new Date(),
+      action: isModification ? "modified_by_supervisor" : "assigned",
+      level: 0, // Supervisor level
+      actor: {
+        id: supervisorId,
+        name: supervisor?.fullName || "Unknown",
+        employeeId: supervisor?.employeeId || "N/A",
+      },
+      salaryType: employee.salaryType,
+      comments: null,
+    };
+
+    if (isModification) {
+      historyEntry.oldValue = employee.salaryType === "Hourly" ? oldMeritDollar : oldMeritPercentage;
+      historyEntry.newValue = employee.salaryType === "Hourly" ? finalMeritDollar : finalMeritPercentage;
+    } else {
+      historyEntry.meritValue = employee.salaryType === "Hourly" ? finalMeritDollar : finalMeritPercentage;
+    }
+
+    history.push(historyEntry);
+
     // Update merit fields and reset approval state
     employee.meritIncreasePercentage = finalMeritPercentage;
     employee.meritIncreaseDollar = finalMeritDollar;
@@ -497,6 +531,7 @@ export const updateEmployeeMerit = async (req, res, next) => {
       enteredAt: new Date(),
       submittedForApproval: false, // Reset so supervisor can re-submit
     };
+    employee.meritHistory = history;
     await employee.save();
 
     const updatedEmployee = await Employee.findByPk(id, {
@@ -1420,6 +1455,11 @@ export const submitMeritsForApproval = async (req, res, next) => {
       );
     }
 
+    // Get supervisor details for history logging
+    const supervisor = await Employee.findByPk(supervisorId, {
+      attributes: ["id", "fullName", "employeeId"],
+    });
+
     // Update each employee
     for (const employee of employeesToSubmit) {
       // Get existing approval status safely
@@ -1445,9 +1485,32 @@ export const submitMeritsForApproval = async (req, res, next) => {
       if (employee.level5ApproverId)
         status.level5 = { status: "pending", approvedBy: null, approvedAt: null, comments: null };
 
+      // Add to merit history
+      const history = employee.meritHistory || [];
+      const meritValue = employee.salaryType === "Hourly"
+        ? employee.meritIncreaseDollar
+        : employee.meritIncreasePercentage;
+
+      history.push({
+        timestamp: new Date(),
+        action: "submitted_for_approval",
+        level: 0, // Supervisor level
+        actor: {
+          id: supervisorId,
+          name: supervisor?.fullName || "Unknown",
+          employeeId: supervisor?.employeeId || "N/A",
+        },
+        meritValue: meritValue,
+        salaryType: employee.salaryType,
+        comments: null,
+      });
+
       // Use update instead of save to avoid circular references
       await Employee.update(
-        { approvalStatus: status },
+        {
+          approvalStatus: status,
+          meritHistory: history,
+        },
         { where: { id: employee.id } }
       );
     }
@@ -1594,6 +1657,11 @@ export const processBonusApproval = async (req, res, next) => {
       );
     }
 
+    // Get approver details for history logging
+    const approverDetails = await Employee.findByPk(approverId, {
+      attributes: ["id", "fullName", "employeeId"],
+    });
+
     // Update bonus approval status - convert to plain object to avoid circular references
     const existingStatus = employee.approvalStatus
       ? JSON.parse(JSON.stringify(employee.approvalStatus))
@@ -1608,9 +1676,32 @@ export const processBonusApproval = async (req, res, next) => {
       comments: comments || existingStatus[levelKey]?.comments,
     };
 
+    // Add to merit history
+    const history = employee.meritHistory || [];
+    const currentMeritValue = employee.salaryType === "Hourly"
+      ? employee.meritIncreaseDollar
+      : employee.meritIncreasePercentage;
+
+    history.push({
+      timestamp: new Date(),
+      action: action === "approve" ? "approved" : "rejected",
+      level: approverLevel,
+      actor: {
+        id: approverId,
+        name: approverDetails?.fullName || "Unknown",
+        employeeId: approverDetails?.employeeId || "N/A",
+      },
+      meritValue: currentMeritValue,
+      salaryType: employee.salaryType,
+      comments: comments || null,
+    });
+
     // Use update instead of save to avoid circular references
     await Employee.update(
-      { approvalStatus: existingStatus },
+      {
+        approvalStatus: existingStatus,
+        meritHistory: history,
+      },
       { where: { id: employeeId } }
     );
 
@@ -1789,6 +1880,11 @@ export const bulkApproveAll = async (req, res, next) => {
       });
     }
 
+    // Get approver details for history logging
+    const approverDetails = await Employee.findByPk(approverId, {
+      attributes: ["id", "fullName", "employeeId"],
+    });
+
     let approvedCount = 0;
     for (const employee of eligibleEmployees) {
       const nextLevel = getNextApprovalLevel(employee);
@@ -1807,9 +1903,33 @@ export const bulkApproveAll = async (req, res, next) => {
           comments: comments || existingStatus[levelKey]?.comments,
         };
 
+        // Add to merit history
+        const history = employee.meritHistory || [];
+        const meritValue = employee.salaryType === "Hourly"
+          ? employee.meritIncreaseDollar
+          : employee.meritIncreasePercentage;
+
+        history.push({
+          timestamp: new Date(),
+          action: "approved",
+          level: nextLevel.level,
+          actor: {
+            id: approverId,
+            name: approverDetails?.fullName || "Unknown",
+            employeeId: approverDetails?.employeeId || "N/A",
+          },
+          meritValue: meritValue,
+          salaryType: employee.salaryType,
+          comments: comments || null,
+          bulkApproval: true,
+        });
+
         // Use update instead of save to avoid circular references
         await Employee.update(
-          { approvalStatus: existingStatus },
+          {
+            approvalStatus: existingStatus,
+            meritHistory: history,
+          },
           { where: { id: employee.id } }
         );
         approvedCount++;
@@ -1995,6 +2115,15 @@ export const resubmitAndApprove = async (req, res, next) => {
       }
     }
 
+    // Get actor details for history logging
+    const actorDetails = await Employee.findByPk(actorId, {
+      attributes: ["id", "fullName", "employeeId"],
+    });
+
+    // Store old values for history
+    const oldMeritPercentage = employee.meritIncreasePercentage;
+    const oldMeritDollar = employee.meritIncreaseDollar;
+
     // Build fresh approval status: submitted=true, all levels reset to pending
     const newStatus = {
       submittedForApproval: true,
@@ -2043,6 +2172,26 @@ export const resubmitAndApprove = async (req, res, next) => {
       }
     }
 
+    // Add to merit history
+    const history = employee.meritHistory || [];
+    const oldValue = employee.salaryType === "Hourly" ? oldMeritDollar : oldMeritPercentage;
+    const newValue = employee.salaryType === "Hourly" ? finalMeritDollar : finalMeritPercentage;
+
+    history.push({
+      timestamp: new Date(),
+      action: "resubmitted_and_approved",
+      level: actorLevel === null ? 0 : actorLevel,
+      actor: {
+        id: actorId,
+        name: actorDetails?.fullName || "Unknown",
+        employeeId: actorDetails?.employeeId || "N/A",
+      },
+      oldValue: oldValue,
+      newValue: newValue,
+      salaryType: employee.salaryType,
+      comments: comments || null,
+    });
+
     // Save merit + new approval status in one update
     await Employee.update(
       {
@@ -2051,6 +2200,7 @@ export const resubmitAndApprove = async (req, res, next) => {
         newAnnualSalary,
         newHourlyRate,
         approvalStatus: newStatus,
+        meritHistory: history,
       },
       { where: { id } }
     );
@@ -2151,6 +2301,160 @@ export const exportToUKG = async (req, res, next) => {
   }
 };
 
+// @desc    Modify merit and approve at current level (keeps higher-level approvals intact)
+// @route   POST /api/v2/employees/:employeeId/modify-and-approve
+// @access  Private (Approver only)
+export const modifyAndApproveMerit = async (req, res, next) => {
+  try {
+    const Employee = getEmployeeModel();
+    const { employeeId } = req.params;
+    const { meritIncreasePercentage, meritIncreaseDollar, comments, approverId: bodyApproverId, level } = req.body || {};
+    const approverId =
+      req.user?.userId ||
+      req.user?.id ||
+      bodyApproverId ||
+      req.query?.approverId;
+
+    if (!approverId || approverId === "undefined" || approverId === "null") {
+      return next(new AppError("Approver ID is required", 400));
+    }
+
+    // Validate that at least one merit value is provided
+    if (
+      (meritIncreasePercentage === undefined || meritIncreasePercentage === null) &&
+      (meritIncreaseDollar === undefined || meritIncreaseDollar === null)
+    ) {
+      return next(
+        new AppError("Merit increase (percentage or dollar amount) is required", 400)
+      );
+    }
+
+    const employee = await Employee.findByPk(employeeId, {
+      include: [
+        { model: Employee, as: "level1Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level2Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level3Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level4Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level5Approver", attributes: ["id", "fullName", "employeeId"] },
+      ],
+    });
+
+    if (!employee) {
+      return next(new AppError("Employee not found", 404));
+    }
+
+    // Get approver details for history logging
+    const approverDetails = await Employee.findByPk(approverId, {
+      attributes: ["id", "fullName", "employeeId"],
+    });
+
+    // Determine approver level
+    let approverLevel = level;
+    if (!approverLevel) {
+      for (let lvl = 1; lvl <= 5; lvl++) {
+        if (employee[`level${lvl}ApproverId`]?.toString() === approverId.toString()) {
+          approverLevel = lvl;
+          break;
+        }
+      }
+    }
+
+    if (!approverLevel) {
+      return next(
+        new AppError("You are not authorized to modify merit for this employee", 403)
+      );
+    }
+
+    // Store old values for history
+    const oldMeritPercentage = employee.meritIncreasePercentage;
+    const oldMeritDollar = employee.meritIncreaseDollar;
+
+    // Calculate new merit values
+    let newAnnualSalary = 0;
+    let newHourlyRate = 0;
+    let finalMeritPercentage = 0;
+    let finalMeritDollar = 0;
+
+    if (employee.salaryType === "Hourly") {
+      if (meritIncreaseDollar !== undefined && meritIncreaseDollar !== null) {
+        finalMeritDollar = parseFloat(meritIncreaseDollar);
+        newHourlyRate = (parseFloat(employee.hourlyPayRate) || 0) + finalMeritDollar;
+      }
+    } else {
+      if (meritIncreasePercentage !== undefined && meritIncreasePercentage !== null) {
+        finalMeritPercentage = parseFloat(meritIncreasePercentage);
+        const currentSalary = parseFloat(employee.annualSalary) || 0;
+        newAnnualSalary = currentSalary * (1 + finalMeritPercentage / 100);
+      }
+    }
+
+    // Update approval status - keep higher-level approvals intact
+    const existingStatus = employee.approvalStatus
+      ? JSON.parse(JSON.stringify(employee.approvalStatus))
+      : {};
+
+    const levelKey = `level${approverLevel}`;
+    existingStatus[levelKey] = {
+      ...(existingStatus[levelKey] || {}),
+      status: "approved",
+      approvedBy: approverId,
+      approvedAt: new Date(),
+      comments: comments || null,
+      modified: true,
+      modifiedAt: new Date(),
+    };
+
+    // Add to merit history
+    const history = employee.meritHistory || [];
+    history.push({
+      timestamp: new Date(),
+      action: "modified_and_approved",
+      level: approverLevel,
+      actor: {
+        id: approverId,
+        name: approverDetails?.fullName || "Unknown",
+        employeeId: approverDetails?.employeeId || "N/A",
+      },
+      oldValue: employee.salaryType === "Hourly" ? oldMeritDollar : oldMeritPercentage,
+      newValue: employee.salaryType === "Hourly" ? finalMeritDollar : finalMeritPercentage,
+      salaryType: employee.salaryType,
+      comments: comments || null,
+    });
+
+    // Update employee
+    await Employee.update(
+      {
+        meritIncreasePercentage: finalMeritPercentage,
+        meritIncreaseDollar: finalMeritDollar,
+        newAnnualSalary,
+        newHourlyRate,
+        approvalStatus: existingStatus,
+        meritHistory: history,
+      },
+      { where: { id: employeeId } }
+    );
+
+    const updatedEmployee = await Employee.findByPk(employeeId, {
+      attributes: { exclude: ["password"] },
+      include: [
+        { model: Employee, as: "level1Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level2Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level3Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level4Approver", attributes: ["id", "fullName", "employeeId"] },
+        { model: Employee, as: "level5Approver", attributes: ["id", "fullName", "employeeId"] },
+      ],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Merit modified and approved successfully at level ${approverLevel}`,
+      data: updatedEmployee,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Delete all employees except hr@pvschemicals.com
 // @route   DELETE /api/v2/employees/delete-all
 // @access  Private (HR Admin only - hr@pvschemicals.com)
@@ -2173,6 +2477,43 @@ export const deleteAllEmployees = async (req, res, next) => {
       success: true,
       message: `Successfully deleted ${deletedCount} employees`,
       deletedCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Reset all merit data to upload state (clear all merits, approvals, and history)
+// @route   POST /api/v2/employees/reset-merits
+// @access  Private (HR Admin only)
+export const resetMeritData = async (req, res, next) => {
+  try {
+    const Employee = getEmployeeModel();
+
+    // Reset all merit-related fields to their initial state
+    const [updateCount] = await Employee.update(
+      {
+        meritIncreasePercentage: 0,
+        meritIncreaseDollar: 0,
+        newAnnualSalary: 0,
+        newHourlyRate: 0,
+        approvalStatus: null,
+        meritHistory: null,
+      },
+      {
+        where: {
+          [Op.or]: [
+            { email: { [Op.ne]: "hr@pvschemicals.com" } },
+            { email: null },
+          ],
+        },
+      },
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully reset merit data for ${updateCount} employees. All merit increases, approvals, and history have been cleared.`,
+      resetCount: updateCount,
     });
   } catch (error) {
     next(error);

@@ -16,7 +16,7 @@ export const initEmployeeModel = (sequelize) => {
   employeeId: {
     type: DataTypes.STRING(50),
     allowNull: false,
-    unique: true,
+    // unique: true, // Removed - handled by index instead to avoid SQL Server ALTER COLUMN syntax error
   },
   fullName: {
     type: DataTypes.STRING(200),
@@ -259,6 +259,32 @@ export const initEmployeeModel = (sequelize) => {
         this.setDataValue('approvalStatus', null);
       } else {
         this.setDataValue('approvalStatus', typeof value === 'string' ? value : JSON.stringify(value));
+      }
+    },
+  },
+  // Merit History - Complete audit trail of all merit changes
+  meritHistory: {
+    type: DataTypes.TEXT, // Using TEXT for SQL Server compatibility
+    allowNull: true,
+    defaultValue: null,
+    comment: 'Complete timeline/log of all merit actions (assigned, approved, rejected, modified)',
+    get() {
+      const rawValue = this.getDataValue('meritHistory');
+      if (!rawValue) {
+        return [];
+      }
+      try {
+        return typeof rawValue === 'string' ? JSON.parse(rawValue) : rawValue;
+      } catch (e) {
+        console.error('Error parsing meritHistory:', e);
+        return [];
+      }
+    },
+    set(value) {
+      if (value === null || value === undefined) {
+        this.setDataValue('meritHistory', null);
+      } else {
+        this.setDataValue('meritHistory', typeof value === 'string' ? value : JSON.stringify(value));
       }
     },
   },

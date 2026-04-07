@@ -38,6 +38,13 @@ const Merits = () => {
   const [submitting, setSubmitting] = useState(false);
   const [proceedingForApproval, setProceedingForApproval] = useState(false);
 
+  // State for inline editing - store current input values for real-time calculation
+  const [inlineValues, setInlineValues] = useState({});
+  // State for tracking which rows are saving
+  const [savingRows, setSavingRows] = useState({});
+  // Store debounce timers for each employee
+  const [debounceTimers, setDebounceTimers] = useState({});
+
   const fetchMyTeam = async () => {
     setLoading(true);
     setError("");
@@ -65,6 +72,15 @@ const Merits = () => {
       fetchMyTeam();
     }
   }, [user]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(debounceTimers).forEach(timerId => {
+        if (timerId) clearTimeout(timerId);
+      });
+    };
+  }, [debounceTimers]);
 
   const handleOpenMeritDialog = (employee) => {
     setMeritDialog({
@@ -124,6 +140,146 @@ const Merits = () => {
       setError(errorMessage);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Inline save function with debounce and loading
+  const handleInlineSave = async (employeeId, value) => {
+    // Allow empty value to clear merit
+    if (value === "" || value === null || value === undefined) {
+      // Clear the inline value but don't save
+      setInlineValues((prev) => {
+        const newValues = { ...prev };
+        delete newValues[employeeId];
+        return newValues;
+      });
+      return;
+    }
+
+    if (parseFloat(value) < 0) {
+      setError("Please enter a valid merit amount");
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    // Show loading indicator
+    setSavingRows((prev) => ({ ...prev, [employeeId]: true }));
+
+    try {
+      // Wait for 2 seconds to simulate loading
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      const userId = user?.id || user?._id;
+      const employee = employees.find((emp) => emp.id === employeeId);
+
+      if (!employee) return;
+
+      // Build payload based on employee type
+      const payload = {};
+      if (employee.salaryType === "Hourly") {
+        payload.meritIncreaseDollar = parseFloat(value);
+      } else {
+        payload.meritIncreasePercentage = parseFloat(value);
+      }
+
+      await api.put(
+        `/v2/employees/${employeeId}/merit?supervisorId=${userId}`,
+        payload,
+      );
+
+      // Refresh the employee list
+      await fetchMyTeam();
+      // Clear inline value after save
+      setInlineValues((prev) => {
+        const newValues = { ...prev };
+        delete newValues[employeeId];
+        return newValues;
+      });
+      setSuccess("Merit saved successfully");
+
+      // Auto-hide success message after 2 seconds
+      setTimeout(() => setSuccess(""), 2000);
+    } catch (err) {
+      const errorMessage =
+        err.response?.data?.message ||
+        err.message ||
+        "An error occurred while updating merit";
+      setError(errorMessage);
+    } finally {
+      // Hide loading indicator
+      setSavingRows((prev) => {
+        const newRows = { ...prev };
+        delete newRows[employeeId];
+        return newRows;
+      });
+    }
+  };
+
+  // Debounced input handler
+  const handleInlineChange = (employeeId, value) => {
+    // Update the inline value immediately for real-time calculation
+    setInlineValues((prev) => ({
+      ...prev,
+      [employeeId]: value,
+    }));
+
+    // Clear existing timer for this employee
+    if (debounceTimers[employeeId]) {
+      clearTimeout(debounceTimers[employeeId]);
+    }
+
+    // Set new timer to trigger save after 2 seconds of inactivity
+    const timerId = setTimeout(() => {
+      if (value && parseFloat(value) >= 0) {
+        handleInlineSave(employeeId, value);
+      }
+    }, 2000);
+
+    // Store the timer
+    setDebounceTimers((prev) => ({
+      ...prev,
+      [employeeId]: timerId,
+    }));
+  };
+
+  // Calculate new salary based on current or inline value
+  const calculateNewSalary = (employee, inlineValue) => {
+    const meritValue = inlineValue !== undefined && inlineValue !== ""
+      ? parseFloat(inlineValue)
+      : (employee.salaryType === "Hourly"
+          ? parseFloat(employee.meritIncreaseDollar) || 0
+          : parseFloat(employee.meritIncreasePercentage) || 0);
+
+    if (!meritValue || meritValue === 0) return null;
+
+    if (employee.salaryType === "Hourly") {
+      const currentRate = parseFloat(employee.hourlyPayRate) || 0;
+      return currentRate + meritValue;
+    } else {
+      const currentSalary = parseFloat(employee.annualSalary) || 0;
+      return currentSalary * (1 + meritValue / 100);
+    }
+  };
+
+  // Calculate variance from 3% based on current or inline value
+  const calculateVariance = (employee, inlineValue) => {
+    const meritValue = inlineValue !== undefined && inlineValue !== ""
+      ? parseFloat(inlineValue)
+      : (employee.salaryType === "Hourly"
+          ? parseFloat(employee.meritIncreaseDollar) || 0
+          : parseFloat(employee.meritIncreasePercentage) || 0);
+
+    if (!meritValue || meritValue === 0) return null;
+
+    if (employee.salaryType === "Hourly") {
+      const currentRate = parseFloat(employee.hourlyPayRate) || 0;
+      if (currentRate === 0) return null;
+      const percentIncrease = (meritValue / currentRate) * 100;
+      return percentIncrease - 3;
+    } else {
+      return meritValue - 3;
     }
   };
 
@@ -317,30 +473,79 @@ const Merits = () => {
     {
       field: "meritIncrease",
       headerName: "Merit Increase",
-      width: 180,
-      minWidth: 160,
+      width: 200,
+      minWidth: 180,
       flex: 1,
       renderCell: (params) => {
-        if (params.row.salaryType === "Hourly") {
-          const merit = params.row.meritIncreaseDollar || 0;
-          return merit > 0 ? `$${merit.toFixed(2)}/hr` : "-";
-        } else {
-          const merit = params.row.meritIncreasePercentage || 0;
-          const annualSalary = params.row.annualSalary || 0;
-          if (merit === 0) return "-";
-          // Calculate dollar amount from percentage
-          const dollarAmount = (annualSalary * merit) / 100;
-          return (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
-              <Typography sx={{ fontWeight: "bold", fontSize: "0.875rem" }}>
-                {merit}%
-              </Typography>
-              <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
-                (${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-              </Typography>
-            </Box>
-          );
+        const isSubmitted = params.row.approvalStatus?.submittedForApproval;
+
+        // If submitted, show locked value
+        if (isSubmitted) {
+          if (params.row.salaryType === "Hourly") {
+            const merit = params.row.meritIncreaseDollar || 0;
+            return merit > 0 ? `$${merit.toFixed(2)}/hr` : "-";
+          } else {
+            const merit = params.row.meritIncreasePercentage || 0;
+            const annualSalary = params.row.annualSalary || 0;
+            if (merit === 0) return "-";
+            const dollarAmount = (annualSalary * merit) / 100;
+            return (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+                <Typography sx={{ fontWeight: "bold", fontSize: "0.875rem" }}>
+                  {merit}%
+                </Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
+                  (${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                </Typography>
+              </Box>
+            );
+          }
         }
+
+        // Always show input field for non-submitted employees
+        const currentValue = inlineValues[params.row.id] !== undefined
+          ? inlineValues[params.row.id]
+          : (params.row.salaryType === "Hourly"
+              ? params.row.meritIncreaseDollar || ""
+              : params.row.meritIncreasePercentage || "");
+
+        const isSaving = savingRows[params.row.id];
+
+        return (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "100%",
+              height: "100%",
+              gap: 1,
+            }}
+          >
+            <TextField
+              size="small"
+              type="number"
+              value={currentValue}
+              onChange={(e) => {
+                handleInlineChange(params.row.id, e.target.value);
+              }}
+              disabled={isSaving}
+              InputProps={{
+                startAdornment: params.row.salaryType === "Hourly" ? "$" : undefined,
+                endAdornment: isSaving ? (
+                  <CircularProgress size={16} sx={{ mr: 1 }} />
+                ) : (
+                  params.row.salaryType === "Hourly" ? "/hr" : "%"
+                ),
+              }}
+              inputProps={{
+                step: params.row.salaryType === "Hourly" ? "0.01" : "0.1",
+                min: "0",
+              }}
+              sx={{ width: "100%" }}
+            />
+          </Box>
+        );
       },
     },
     {
@@ -350,12 +555,16 @@ const Merits = () => {
       minWidth: 130,
       flex: 0.8,
       renderCell: (params) => {
+        // Use inline value if being typed, otherwise use saved value
+        const inlineValue = inlineValues[params.row.id];
+        const newSalary = calculateNewSalary(params.row, inlineValue);
+
+        if (!newSalary) return "-";
+
         if (params.row.salaryType === "Hourly") {
-          const newRate = params.row.newHourlyRate || 0;
-          return newRate > 0 ? `$${newRate.toFixed(2)}/hr` : "-";
+          return `$${newSalary.toFixed(2)}/hr`;
         } else {
-          const newSalary = params.row.newAnnualSalary || 0;
-          return newSalary > 0 ? `$${newSalary.toLocaleString()}` : "-";
+          return `$${newSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
       },
     },
@@ -366,49 +575,25 @@ const Merits = () => {
       minWidth: 160,
       flex: 1,
       renderCell: (params) => {
-        // For salaried employees, variance is direct comparison to 3%
-        if (params.row.salaryType !== "Hourly") {
-          const merit = params.row.meritIncreasePercentage || 0;
-          // Only show variance if merit has been entered
-          if (merit === 0) {
-            return "-";
-          }
-          const variance = merit - 3;
-          const color = variance > 0 ? "error.main" : "success.main";
-          const label = variance > 0 ? "Above Limit" : "Within Limit";
-          return (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
-              <Typography sx={{ color, fontWeight: "bold", fontSize: "0.875rem" }}>
-                {variance > 0 ? "+" : ""}{variance.toFixed(2)}%
-              </Typography>
-              <Typography sx={{ color, fontSize: "0.7rem", fontStyle: "italic" }}>
-                {label}
-              </Typography>
-            </Box>
-          );
-        } else {
-          // For hourly employees, calculate percentage increase and compare to 3%
-          const currentRate = params.row.hourlyPayRate || 0;
-          const meritDollar = params.row.meritIncreaseDollar || 0;
-          // Only show variance if merit has been entered
-          if (currentRate === 0 || meritDollar === 0) {
-            return "-";
-          }
-          const percentIncrease = (meritDollar / currentRate) * 100;
-          const variance = percentIncrease - 3;
-          const color = variance > 0 ? "error.main" : "success.main";
-          const label = variance > 0 ? "Above Limit" : "Within Limit";
-          return (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
-              <Typography sx={{ color, fontWeight: "bold", fontSize: "0.875rem" }}>
-                {variance > 0 ? "+" : ""}{variance.toFixed(2)}%
-              </Typography>
-              <Typography sx={{ color, fontSize: "0.7rem", fontStyle: "italic" }}>
-                {label}
-              </Typography>
-            </Box>
-          );
-        }
+        // Use inline value if being typed, otherwise use saved value
+        const inlineValue = inlineValues[params.row.id];
+        const variance = calculateVariance(params.row, inlineValue);
+
+        if (variance === null) return "-";
+
+        const color = variance > 0 ? "error.main" : "success.main";
+        const label = variance > 0 ? "Above Limit" : "Within Limit";
+
+        return (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+            <Typography sx={{ color, fontWeight: "bold", fontSize: "0.875rem" }}>
+              {variance > 0 ? "+" : ""}{variance.toFixed(2)}%
+            </Typography>
+            <Typography sx={{ color, fontSize: "0.7rem", fontStyle: "italic" }}>
+              {label}
+            </Typography>
+          </Box>
+        );
       },
     },
     // {
@@ -443,64 +628,65 @@ const Merits = () => {
     //   flex: 1.2,
     //   renderCell: (params) => getNextApprover(params.row),
     // },
-    {
-      field: "actions",
-      headerName: "Actions",
-      width: 140,
-      minWidth: 120,
-      flex: 0.5,
-      sortable: false,
-      renderCell: (params) => {
-        const isSubmitted = params.row.approvalStatus?.submittedForApproval;
+    // COMMENTED OUT: Actions column - now using inline editing
+    // {
+    //   field: "actions",
+    //   headerName: "Actions",
+    //   width: 140,
+    //   minWidth: 120,
+    //   flex: 0.5,
+    //   sortable: false,
+    //   renderCell: (params) => {
+    //     const isSubmitted = params.row.approvalStatus?.submittedForApproval;
 
-        // If already submitted for approval, disable editing
-        if (isSubmitted) {
-          return (
-            <Tooltip title="Merit has been submitted for approval and is locked">
-              <span>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  disabled
-                  sx={{ fontSize: "0.75rem", py: 0.5, minWidth: "auto" }}
-                >
-                  Locked
-                </Button>
-              </span>
-            </Tooltip>
-          );
-        }
+    //     // If already submitted for approval, disable editing
+    //     if (isSubmitted) {
+    //       return (
+    //         <Tooltip title="Merit has been submitted for approval and is locked">
+    //           <span>
+    //             <Button
+    //               variant="outlined"
+    //               size="small"
+    //               disabled
+    //               sx={{ fontSize: "0.75rem", py: 0.5, minWidth: "auto" }}
+    //             >
+    //               Locked
+    //             </Button>
+    //           </span>
+    //         </Tooltip>
+    //       );
+    //     }
 
-        // If merit is not entered yet, show "Add Merit" button
-        const hasMeritValue =
-          (params.row.meritIncreasePercentage && parseFloat(params.row.meritIncreasePercentage) > 0) ||
-          (params.row.meritIncreaseDollar && parseFloat(params.row.meritIncreaseDollar) > 0);
-        if (!hasMeritValue) {
-          return (
-            <Button
-              variant="contained"
-              size="small"
-              onClick={() => handleOpenMeritDialog(params.row)}
-              sx={{ fontSize: "0.75rem", py: 0.5, minWidth: "auto" }}
-            >
-              Add Merit
-            </Button>
-          );
-        }
+    //     // If merit is not entered yet, show "Add Merit" button
+    //     const hasMeritValue =
+    //       (params.row.meritIncreasePercentage && parseFloat(params.row.meritIncreasePercentage) > 0) ||
+    //       (params.row.meritIncreaseDollar && parseFloat(params.row.meritIncreaseDollar) > 0);
+    //     if (!hasMeritValue) {
+    //       return (
+    //         <Button
+    //           variant="contained"
+    //           size="small"
+    //           onClick={() => handleOpenMeritDialog(params.row)}
+    //           sx={{ fontSize: "0.75rem", py: 0.5, minWidth: "auto" }}
+    //         >
+    //           Add Merit
+    //         </Button>
+    //       );
+    //     }
 
-        // If merit is entered but not submitted, show "Edit Merit" button
-        return (
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => handleOpenMeritDialog(params.row)}
-            sx={{ fontSize: "0.75rem", py: 0.5, minWidth: "auto" }}
-          >
-            Edit Merit
-          </Button>
-        );
-      },
-    },
+    //     // If merit is entered but not submitted, show "Edit Merit" button
+    //     return (
+    //       <Button
+    //         variant="outlined"
+    //         size="small"
+    //         onClick={() => handleOpenMeritDialog(params.row)}
+    //         sx={{ fontSize: "0.75rem", py: 0.5, minWidth: "auto" }}
+    //       >
+    //         Edit Merit
+    //       </Button>
+    //     );
+    //   },
+    // },
   ];
 
   // Check if any employee has merits submitted for approval
@@ -575,8 +761,10 @@ const Merits = () => {
       <Box
         sx={{
           display: "flex",
+          flexDirection: { xs: "column", lg: "row" },
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: { xs: "flex-start", lg: "center" },
+          gap: 2,
           mb: 2,
         }}
       >
@@ -587,13 +775,23 @@ const Merits = () => {
         <Box
           sx={{
             display: "flex",
-            alignItems: "center",
-            gap: 2,
             flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 2,
+            width: { xs: "100%", lg: "auto" },
           }}
         >
-          <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
-            <Box sx={{ textAlign: "right" }}>
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: { xs: 2, md: 3 },
+              alignItems: "flex-start",
+              justifyContent: { xs: "space-between", lg: "flex-end" },
+              width: "100%",
+            }}
+          >
+            <Box sx={{ textAlign: "right", minWidth: { xs: "140px", sm: "auto" } }}>
               <Typography
                 variant="caption"
                 sx={{ color: "text.secondary", fontWeight: "medium" }}
@@ -614,7 +812,7 @@ const Merits = () => {
               </Typography>
             </Box>
 
-            <Box sx={{ textAlign: "right" }}>
+            <Box sx={{ textAlign: "right", minWidth: { xs: "140px", sm: "auto" } }}>
               <Typography
                 variant="caption"
                 sx={{ color: "text.secondary", fontWeight: "medium" }}
@@ -635,7 +833,7 @@ const Merits = () => {
               </Typography>
             </Box>
 
-            <Box sx={{ textAlign: "right" }}>
+            <Box sx={{ textAlign: "right", minWidth: { xs: "140px", sm: "auto" } }}>
               <Typography
                 variant="caption"
                 sx={{ color: "text.secondary", fontWeight: "medium" }}
@@ -659,7 +857,7 @@ const Merits = () => {
               </Typography>
             </Box>
 
-            <Box sx={{ textAlign: "right" }}>
+            <Box sx={{ textAlign: "right", minWidth: { xs: "140px", sm: "auto" } }}>
               <Typography
                 variant="caption"
                 sx={{ color: "text.secondary", fontWeight: "medium" }}
@@ -692,6 +890,7 @@ const Merits = () => {
                 fontWeight: "bold",
                 px: 3,
                 py: 1,
+                alignSelf: "flex-end",
                 "&.Mui-disabled": {
                   color: "#FFFFFF",
                   opacity: 0.7,
@@ -775,8 +974,8 @@ const Merits = () => {
         )}
       </Paper>
 
-      {/* Merit Edit Dialog */}
-      <Dialog
+      {/* COMMENTED OUT: Merit Edit Dialog - now using inline editing */}
+      {/* <Dialog
         open={meritDialog.open}
         onClose={handleCloseMeritDialog}
         maxWidth="sm"
@@ -894,7 +1093,7 @@ const Merits = () => {
             {submitting ? "Saving..." : "Save Merit"}
           </Button>
         </DialogActions>
-      </Dialog>
+      </Dialog> */}
     </Box>
   );
 };
