@@ -23,9 +23,12 @@ import SearchIcon from "@mui/icons-material/Search";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import EditIcon from "@mui/icons-material/Edit";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import DeleteIcon from "@mui/icons-material/Delete";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import useDashboardStats from "../../hooks/useDashboardStats";
 import api from "../../utils/api";
 import EditEmployeeMeritModal from "../../components/modals/EditEmployeeMeritModal";
+import ConfirmDialog from "../../components/modals/ConfirmDialog";
 
 const HRDashboard = ({ user }) => {
   const {
@@ -52,6 +55,12 @@ const HRDashboard = ({ user }) => {
   const [ukgExportLoading, setUkgExportLoading] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
+
+  // Delete and Reset states
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const checkUKGExportStatus = async () => {
     try {
@@ -116,6 +125,68 @@ const HRDashboard = ({ user }) => {
 
   const handleSnackbarClose = () => {
     setSnackbarOpen(false);
+  };
+
+  // Delete All Employees Handler
+  const handleDeleteAllEmployees = async () => {
+    setDeleteLoading(true);
+    try {
+      const response = await api.delete("/v2/employees/delete-all");
+
+      setSnackbarMessage(
+        response.data.message ||
+        `Successfully deleted ${response.data.deletedCount} employees`
+      );
+      setSnackbarOpen(true);
+      setDeleteDialogOpen(false);
+
+      // Refresh employee list
+      const fetchResponse = await api.get("/v2/employees");
+      setEmployees(fetchResponse.data.data);
+      setFilteredEmployees(fetchResponse.data.data);
+      checkUKGExportStatus();
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+        err.message ||
+        "An error occurred while deleting employees"
+      );
+      setSnackbarMessage("Failed to delete employees");
+      setSnackbarOpen(true);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // Reset Merit Data Handler
+  const handleResetMeritData = async () => {
+    setResetLoading(true);
+    try {
+      const response = await api.post("/v2/employees/reset-merits");
+
+      setSnackbarMessage(
+        response.data.message ||
+        `Successfully reset merit data for ${response.data.resetCount} employees`
+      );
+      setSnackbarOpen(true);
+      setResetDialogOpen(false);
+
+      // Refresh employee list
+      const fetchResponse = await api.get("/v2/employees");
+      setEmployees(fetchResponse.data.data);
+      setFilteredEmployees(fetchResponse.data.data);
+      checkUKGExportStatus();
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+        err.message ||
+        "An error occurred while resetting merit data"
+      );
+      setSnackbarMessage("Failed to reset merit data");
+      setSnackbarOpen(true);
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -471,7 +542,13 @@ const HRDashboard = ({ user }) => {
     {
       field: "fullName",
       headerName: "Name",
+      width: 200,
+    },
+    {
+      field: "email",
+      headerName: "Email",
       width: 220,
+      renderCell: (params) => params.value || "N/A",
     },
     {
       field: "jobTitle",
@@ -958,8 +1035,51 @@ const HRDashboard = ({ user }) => {
         </Grid>
       </Grid>
 
-      {/* UKG Export Button - Outside Table */}
-      <Box sx={{ mb: 3, display: "flex", justifyContent: "flex-end" }}>
+      {/* Action Buttons - Outside Table */}
+      <Box sx={{ mb: 3, display: "flex", justifyContent: "space-between", gap: 2 }}>
+        {/* Delete and Reset Buttons */}
+        <Box sx={{ display: "flex", gap: 2 }}>
+          <Button
+            variant="outlined"
+            color="error"
+            size="large"
+            startIcon={<DeleteIcon />}
+            onClick={() => setDeleteDialogOpen(true)}
+            disabled={deleteLoading}
+            sx={{
+              px: 3,
+              py: 1.5,
+              fontWeight: 600,
+              borderWidth: 2,
+              "&:hover": {
+                borderWidth: 2,
+              },
+            }}
+          >
+            Delete All Employees
+          </Button>
+          <Button
+            variant="outlined"
+            color="warning"
+            size="large"
+            startIcon={<RestartAltIcon />}
+            onClick={() => setResetDialogOpen(true)}
+            disabled={resetLoading}
+            sx={{
+              px: 3,
+              py: 1.5,
+              fontWeight: 600,
+              borderWidth: 2,
+              "&:hover": {
+                borderWidth: 2,
+              },
+            }}
+          >
+            Reset All Merit Data
+          </Button>
+        </Box>
+
+        {/* UKG Export Button */}
         <Button
           variant="contained"
           color="success"
@@ -1008,7 +1128,7 @@ const HRDashboard = ({ user }) => {
             {/* Table Header */}
             <Box>
               <Typography variant="h5" sx={{ fontWeight: 700, mt: 1 }}>
-                Employees
+                Approval Chain
               </Typography>
               <Typography
                 variant="body2"
@@ -1435,6 +1555,32 @@ const HRDashboard = ({ user }) => {
         onClose={handleCloseEditModal}
         onEmployeeUpdated={handleEmployeeUpdated}
         employee={selectedEmployee}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        onConfirm={handleDeleteAllEmployees}
+        title="Delete All Employees"
+        message="Are you sure you want to delete all employees? This action cannot be undone. The HR account (hr@pvschemicals.com) will be preserved."
+        confirmText="Delete All"
+        cancelText="Cancel"
+        confirmColor="error"
+        loading={deleteLoading}
+      />
+
+      {/* Reset Merit Data Confirmation Dialog */}
+      <ConfirmDialog
+        open={resetDialogOpen}
+        onClose={() => setResetDialogOpen(false)}
+        onConfirm={handleResetMeritData}
+        title="Reset All Merit Data"
+        message="Are you sure you want to reset all merit data? This will clear all merit increases, approvals, and history for all employees. This action cannot be undone."
+        confirmText="Reset All"
+        cancelText="Cancel"
+        confirmColor="warning"
+        loading={resetLoading}
       />
 
       <Snackbar
