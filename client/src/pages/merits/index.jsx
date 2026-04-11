@@ -20,6 +20,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PendingIcon from "@mui/icons-material/Pending";
 import CancelIcon from "@mui/icons-material/Cancel";
+import CommentIcon from "@mui/icons-material/Comment";
 import { useSelector } from "react-redux";
 import { selectUser } from "../../store/slices/userSlice";
 import api from "../../utils/api";
@@ -44,6 +45,14 @@ const Merits = () => {
   const [savingRows, setSavingRows] = useState({});
   // State for tracking which rows have been successfully saved (show checkmark)
   const [savedRows, setSavedRows] = useState({});
+
+  // Remarks dialog state
+  const [remarksDialog, setRemarksDialog] = useState({
+    open: false,
+    employeeId: null,
+    employeeName: "",
+    remarks: "",
+  });
 
   const fetchMyTeam = async () => {
     setLoading(true);
@@ -152,7 +161,7 @@ const Merits = () => {
   };
 
   // Inline save function - saves immediately on change
-  const handleInlineSave = async (employeeId, value) => {
+  const handleInlineSave = async (employeeId, value, remarks = null) => {
     // Allow empty value to clear merit
     if (value === "" || value === null || value === undefined) {
       // Clear the inline value but don't save
@@ -187,6 +196,11 @@ const Merits = () => {
         payload.meritIncreaseDollar = parseFloat(value);
       } else {
         payload.meritIncreasePercentage = parseFloat(value);
+      }
+
+      // Add remarks if provided
+      if (remarks) {
+        payload.remarks = remarks;
       }
 
       await api.put(
@@ -252,6 +266,55 @@ const Merits = () => {
       const currentSalary = parseFloat(employee.annualSalary) || 0;
       return currentSalary * (1 + meritValue / 100);
     }
+  };
+
+  // Handle opening remarks dialog
+  const handleOpenRemarksDialog = (employee) => {
+    setRemarksDialog({
+      open: true,
+      employeeId: employee.id,
+      employeeName: employee.fullName,
+      remarks: "",
+    });
+  };
+
+  // Handle closing remarks dialog
+  const handleCloseRemarksDialog = () => {
+    setRemarksDialog({
+      open: false,
+      employeeId: null,
+      employeeName: "",
+      remarks: "",
+    });
+  };
+
+  // Handle saving remarks
+  const handleSaveRemarks = async () => {
+    const { employeeId, remarks } = remarksDialog;
+
+    if (!remarks.trim()) {
+      setError("Please enter remarks");
+      return;
+    }
+
+    // Get the current merit value for this employee
+    const employee = employees.find((emp) => emp.id === employeeId);
+    if (!employee) return;
+
+    const currentValue = inlineValues[employeeId] !== undefined
+      ? inlineValues[employeeId]
+      : (employee.salaryType === "Hourly"
+          ? employee.meritIncreaseDollar || ""
+          : employee.meritIncreasePercentage || "");
+
+    if (!currentValue || parseFloat(currentValue) <= 0) {
+      setError("Please assign a merit value before adding remarks");
+      return;
+    }
+
+    // Save with remarks
+    await handleInlineSave(employeeId, currentValue, remarks);
+    handleCloseRemarksDialog();
   };
 
   // Calculate variance from 3% based on current or inline value
@@ -587,6 +650,42 @@ const Merits = () => {
               {label}
             </Typography>
           </Box>
+        );
+      },
+    },
+    {
+      field: "remarks",
+      headerName: "Remarks",
+      width: 120,
+      minWidth: 100,
+      flex: 0.6,
+      sortable: false,
+      renderCell: (params) => {
+        const isSubmitted = params.row.approvalStatus?.submittedForApproval;
+
+        // Disable for submitted employees
+        if (isSubmitted) {
+          return (
+            <Tooltip title="Cannot add remarks after submission">
+              <span>
+                <IconButton size="small" disabled>
+                  <CommentIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          );
+        }
+
+        return (
+          <Tooltip title="Add remarks for this merit assignment">
+            <IconButton
+              size="small"
+              color="primary"
+              onClick={() => handleOpenRemarksDialog(params.row)}
+            >
+              <CommentIcon />
+            </IconButton>
+          </Tooltip>
         );
       },
     },
@@ -962,126 +1061,45 @@ const Merits = () => {
         )}
       </Paper>
 
-      {/* COMMENTED OUT: Merit Edit Dialog - now using inline editing */}
-      {/* <Dialog
-        open={meritDialog.open}
-        onClose={handleCloseMeritDialog}
+      {/* Remarks Dialog */}
+      <Dialog
+        open={remarksDialog.open}
+        onClose={handleCloseRemarksDialog}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          {getApprovalStatus(meritDialog.employee).status !== "not_entered"
-            ? "Edit"
-            : "Add"}{" "}
-          Merit for {meritDialog.employee?.fullName}
+          Add Remarks for {remarksDialog.employeeName}
         </DialogTitle>
         <DialogContent>
-          {meritDialog.employee && (
-            <>
-              <Box sx={{ mb: 3, mt: 2 }}>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mb: 1 }}
-                >
-                  <strong>Employee ID:</strong>{" "}
-                  {meritDialog.employee.employeeId}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mb: 1 }}
-                >
-                  <strong>Job Title:</strong>{" "}
-                  {meritDialog.employee.jobTitle || "N/A"}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mb: 1 }}
-                >
-                  <strong>Salary Type:</strong>{" "}
-                  {meritDialog.employee.salaryType || "N/A"}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Current {meritDialog.employee.salaryType === "Hourly" ? "Hourly Rate" : "Annual Salary"}:</strong>{" "}
-                  {meritDialog.employee.salaryType === "Hourly"
-                    ? `$${(meritDialog.employee.hourlyPayRate || 0).toFixed(2)}/hr`
-                    : `$${(meritDialog.employee.annualSalary || 0).toLocaleString()}`}
-                </Typography>
-              </Box>
-
-              <TextField
-                autoFocus
-                margin="dense"
-                label={
-                  meritDialog.employee.salaryType === "Hourly"
-                    ? "Merit Increase ($/hour)"
-                    : "Merit Increase (%)"
-                }
-                fullWidth
-                type="number"
-                value={meritAmount}
-                onChange={(e) => setMeritAmount(e.target.value)}
-                placeholder={
-                  meritDialog.employee.salaryType === "Hourly"
-                    ? "Enter dollar increase per hour (e.g., 0.50)"
-                    : "Enter percentage increase (e.g., 2.5 for 2.5%)"
-                }
-                InputProps={{
-                  startAdornment: (
-                    <Typography sx={{ mr: 1 }}>
-                      {meritDialog.employee.salaryType === "Hourly" ? "$" : ""}
-                    </Typography>
-                  ),
-                  endAdornment: (
-                    <Typography sx={{ ml: 1 }}>
-                      {meritDialog.employee.salaryType === "Hourly" ? "/hr" : "%"}
-                    </Typography>
-                  ),
-                }}
-                helperText={
-                  meritDialog.employee.salaryType === "Hourly"
-                    ? "Enter the dollar amount increase per hour. Target: 3% average across team."
-                    : "Enter the percentage increase. Target: 3% average across team."
-                }
-              />
-
-              {meritAmount && parseFloat(meritAmount) > 0 && (
-                <Box sx={{ mt: 2, p: 2, bgcolor: "primary.light", borderRadius: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: "medium" }}>
-                    New {meritDialog.employee.salaryType === "Hourly" ? "Hourly Rate" : "Annual Salary"}:{" "}
-                    {meritDialog.employee.salaryType === "Hourly"
-                      ? `$${((parseFloat(meritDialog.employee.hourlyPayRate) || 0) + parseFloat(meritAmount)).toFixed(2)}/hr`
-                      : `$${((parseFloat(meritDialog.employee.annualSalary) || 0) * (1 + parseFloat(meritAmount) / 100)).toLocaleString()}`}
-                  </Typography>
-                </Box>
-              )}
-            </>
-          )}
+          <Box sx={{ mt: 2 }}>
+            <TextField
+              autoFocus
+              multiline
+              rows={4}
+              fullWidth
+              label="Remarks"
+              placeholder="Enter your remarks for this merit assignment (optional but recommended)"
+              value={remarksDialog.remarks}
+              onChange={(e) => setRemarksDialog((prev) => ({ ...prev, remarks: e.target.value }))}
+              helperText="These remarks will appear in the merit history timeline"
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseMeritDialog} disabled={submitting}>
+          <Button onClick={handleCloseRemarksDialog}>
             Cancel
           </Button>
           <Button
-            onClick={handleSubmitMerit}
+            onClick={handleSaveRemarks}
             variant="contained"
             color="primary"
-            disabled={submitting || !meritAmount}
-            sx={{
-              color: "#FFFFFF",
-              "&.Mui-disabled": {
-                color: "#FFFFFF",
-                opacity: 0.7,
-                backgroundColor: "rgba(0, 0, 0, 0.12)",
-              },
-            }}
+            disabled={!remarksDialog.remarks.trim()}
           >
-            {submitting ? "Saving..." : "Save Merit"}
+            Save Remarks
           </Button>
         </DialogActions>
-      </Dialog> */}
+      </Dialog>
     </Box>
   );
 };
