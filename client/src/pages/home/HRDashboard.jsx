@@ -33,6 +33,7 @@ import api from "../../utils/api";
 import EditEmployeeMeritModal from "../../components/modals/EditEmployeeMeritModal";
 import ConfirmDialog from "../../components/modals/ConfirmDialog";
 import MeritTimelineModal from "../../components/modals/MeritTimelineModal";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 const HRDashboard = ({ user }) => {
   const {
@@ -53,6 +54,8 @@ const HRDashboard = ({ user }) => {
   const [selectedStatus, setSelectedStatus] = useState("");
   const [selectedSupervisor, setSelectedSupervisor] = useState("");
   const [selectedCompany, setSelectedCompany] = useState("");
+  const [selectedApprovalStatus, setSelectedApprovalStatus] = useState(""); // pending or completed
+  const [selectedMeritAssignment, setSelectedMeritAssignment] = useState(""); // pending or completed
 
   // UKG Export states
   const [ukgExportEnabled, setUkgExportEnabled] = useState(false);
@@ -152,8 +155,9 @@ const HRDashboard = ({ user }) => {
 
       // Refresh employee list
       const fetchResponse = await api.get("/v2/employees");
-      setEmployees(fetchResponse.data.data);
-      setFilteredEmployees(fetchResponse.data.data);
+      const filteredData = fetchResponse.data.data.filter(emp => emp.email !== "hr@pvschemicals.com");
+      setEmployees(filteredData);
+      setFilteredEmployees(filteredData);
       checkUKGExportStatus();
     } catch (err) {
       setError(
@@ -183,8 +187,9 @@ const HRDashboard = ({ user }) => {
 
       // Refresh employee list
       const fetchResponse = await api.get("/v2/employees");
-      setEmployees(fetchResponse.data.data);
-      setFilteredEmployees(fetchResponse.data.data);
+      const filteredData = fetchResponse.data.data.filter(emp => emp.email !== "hr@pvschemicals.com");
+      setEmployees(filteredData);
+      setFilteredEmployees(filteredData);
       checkUKGExportStatus();
     } catch (err) {
       setError(
@@ -205,8 +210,10 @@ const HRDashboard = ({ user }) => {
       setError("");
       try {
         const response = await api.get("/v2/employees");
-        setEmployees(response.data.data);
-        setFilteredEmployees(response.data.data);
+        // Filter out HR account from all displays and calculations
+        const filteredData = response.data.data.filter(emp => emp.email !== "hr@pvschemicals.com");
+        setEmployees(filteredData);
+        setFilteredEmployees(filteredData);
 
         // Check UKG export status
         checkUKGExportStatus();
@@ -262,6 +269,57 @@ const HRDashboard = ({ user }) => {
       filtered = filtered.filter((emp) => emp.company === selectedCompany);
     }
 
+    // Approvals filter (pending or completed)
+    if (selectedApprovalStatus) {
+      filtered = filtered.filter((emp) => {
+        // Check if all assigned approvals are completed
+        let allApprovalsCompleted = true;
+        let hasAnyApprover = false;
+
+        for (let i = 1; i <= 5; i++) {
+          const approver = emp[`level${i}Approver`];
+          if (approver) {
+            hasAnyApprover = true;
+            const status = emp.approvalStatus?.[`level${i}`]?.status;
+            if (status !== "approved") {
+              allApprovalsCompleted = false;
+              break;
+            }
+          }
+        }
+
+        // If employee has no approvers assigned, consider as pending
+        if (!hasAnyApprover) {
+          allApprovalsCompleted = false;
+        }
+
+        if (selectedApprovalStatus === "completed") {
+          return allApprovalsCompleted && hasAnyApprover;
+        } else if (selectedApprovalStatus === "pending") {
+          return !allApprovalsCompleted;
+        }
+        return true;
+      });
+    }
+
+    // Merit Assignment filter (pending or completed)
+    if (selectedMeritAssignment) {
+      filtered = filtered.filter((emp) => {
+        const hasMeritAssigned = !!(
+          emp.approvalStatus?.enteredBy ||
+          (emp.salaryType === "Hourly" && emp.meritIncreaseDollar && parseFloat(emp.meritIncreaseDollar) > 0) ||
+          (emp.salaryType !== "Hourly" && emp.meritIncreasePercentage && parseFloat(emp.meritIncreasePercentage) > 0)
+        );
+
+        if (selectedMeritAssignment === "completed") {
+          return hasMeritAssigned;
+        } else if (selectedMeritAssignment === "pending") {
+          return !hasMeritAssigned;
+        }
+        return true;
+      });
+    }
+
     setFilteredEmployees(filtered);
   }, [
     searchQuery,
@@ -269,6 +327,8 @@ const HRDashboard = ({ user }) => {
     selectedStatus,
     selectedSupervisor,
     selectedCompany,
+    selectedApprovalStatus,
+    selectedMeritAssignment,
     employees,
   ]);
 
@@ -291,8 +351,9 @@ const HRDashboard = ({ user }) => {
       setError("");
       try {
         const response = await api.get("/v2/employees");
-        setEmployees(response.data.data);
-        setFilteredEmployees(response.data.data);
+        const filteredData = response.data.data.filter(emp => emp.email !== "hr@pvschemicals.com");
+        setEmployees(filteredData);
+        setFilteredEmployees(filteredData);
       } catch (err) {
         setError(
           err.response?.data?.message ||
@@ -406,26 +467,42 @@ const HRDashboard = ({ user }) => {
   ];
 
   // Calculate approval completion stats
-  const totalEmployees = filteredEmployees.length;
-  const fullyApprovedCount = filteredEmployees.filter((emp) => {
-    // Check if all 5 levels are approved
+  // First, get employees that need approvals (have merit + have at least one approver)
+  const employeesNeedingApprovals = employees.filter((emp) => {
+    // Check if merit has been assigned (same logic as "Merits Assigned" card)
+    const hasMeritAssigned = !!(
+      (parseFloat(emp.meritIncreasePercentage) > 0) ||
+      (parseFloat(emp.meritIncreaseDollar) > 0)
+    );
+
+    const hasAnyApprover = !!(
+      (emp.level1ApproverName && emp.level1ApproverName !== "-") ||
+      (emp.level2ApproverName && emp.level2ApproverName !== "-") ||
+      (emp.level3ApproverName && emp.level3ApproverName !== "-") ||
+      (emp.level4ApproverName && emp.level4ApproverName !== "-") ||
+      (emp.level5ApproverName && emp.level5ApproverName !== "-")
+    );
+
+    return hasMeritAssigned && hasAnyApprover;
+  });
+
+  const totalEmployeesNeedingApprovals = employeesNeedingApprovals.length;
+
+  // Now count how many of those have completed all their approvals
+  const fullyApprovedCount = employeesNeedingApprovals.filter((emp) => {
+    // Check if all assigned levels are approved
     for (let i = 1; i <= 5; i++) {
-      const approver = emp[`level${i}Approver`];
-      if (approver) {
+      const approver = emp[`level${i}ApproverName`];
+      if (approver && approver !== "-") {
         const status = emp.approvalStatus?.[`level${i}`]?.status;
         if (status !== "approved") {
           return false;
         }
       }
     }
-    // Employee must have at least one approver assigned
-    return (
-      emp.level1Approver ||
-      emp.level2Approver ||
-      emp.level3Approver ||
-      emp.level4Approver ||
-      emp.level5Approver
-    );
+
+    // All assigned approvals are completed
+    return true;
   }).length;
 
   // Calculate team average merit percentage (for display in stats card)
@@ -570,7 +647,24 @@ const HRDashboard = ({ user }) => {
       field: "supervisorName",
       headerName: "Supervisor",
       width: 180,
-      renderCell: (params) => params.value || "Not Assigned",
+      renderCell: (params) => {
+        const approverName = params.value || "Not Assigned";
+        const isMeritEntered = !!(
+          params.row.approvalStatus?.enteredBy ||
+          (params.row.salaryType === "Hourly" && params.row.meritIncreaseDollar && parseFloat(params.row.meritIncreaseDollar) > 0) ||
+          (params.row.salaryType !== "Hourly" && params.row.meritIncreasePercentage && parseFloat(params.row.meritIncreasePercentage) > 0)
+        );
+        
+        if (isMeritEntered && params.value) {
+          return (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 1 }}>
+              <Typography sx={{ color: "success.main" }}>{approverName}</Typography>
+              <CheckCircleIcon sx={{ fontSize: 16, color: "success.main" }} />
+            </Box>
+          );
+        }
+        return <Typography sx={{ color: "text.primary", mt: 1 }}>{approverName}</Typography>;
+      },
     },
     {
       field: "salaryType",
@@ -802,13 +896,13 @@ const HRDashboard = ({ user }) => {
                       mb: 0.5,
                     }}
                   >
-                    {statsLoading ? (
+                    {loading ? (
                       <CircularProgress
                         size={30}
                         sx={{ color: "primary.main" }}
                       />
                     ) : (
-                      staffCount
+                      employees.length
                     )}
                   </Typography>
                   <Typography
@@ -819,6 +913,84 @@ const HRDashboard = ({ user }) => {
                     }}
                   >
                     Active staff members
+                  </Typography>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+                <Grid size={{ xs: 12, sm: 6, md: 4, xl: 3 }}>
+          <Card
+            sx={{
+              height: "100%",
+              background:
+                "linear-gradient(135deg, hsl(210, 100%, 95%) 0%, hsl(210, 100%, 92%) 100%)",
+              borderRadius: 2,
+              border: "1px solid",
+              borderColor: "primary.light",
+              boxShadow: "0 4px 20px 0 rgba(0,0,0,0.08)",
+              transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              "&:hover": {
+                transform: "translateY(-4px)",
+                boxShadow: "0 8px 30px 0 rgba(33, 150, 243, 0.15)",
+              },
+            }}
+          >
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      backgroundColor: "primary.main",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <PeopleIcon sx={{ fontSize: 28, color: "white" }} />
+                  </Box>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{
+                      color: "primary.dark",
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      fontSize: "0.75rem",
+                    }}
+                  >
+                    Merits Assigned
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography
+                    variant="h3"
+                    sx={{
+                      color: "primary.dark",
+                      fontWeight: 700,
+                      mb: 0.5,
+                    }}
+                  >
+                    {loading ? (
+                      <CircularProgress
+                        size={30}
+                        sx={{ color: "primary.main" }}
+                      />
+                    ) : (
+                      employeesWithMerit2025
+                    )}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: "text.secondary",
+                      fontSize: "0.875rem",
+                    }}
+                  >
+                    Out of {totalActiveEmployees} employees
                   </Typography>
                 </Box>
               </Box>
@@ -896,7 +1068,7 @@ const HRDashboard = ({ user }) => {
                       fontSize: "0.875rem",
                     }}
                   >
-                    Out of {totalEmployees} employees
+                    Out of {employees.length} employees
                   </Typography>
                 </Box>
               </Box>
@@ -982,84 +1154,6 @@ const HRDashboard = ({ user }) => {
             </CardContent>
           </Card>
         </Grid>
-
-        <Grid size={{ xs: 12, sm: 6, md: 4, xl: 3 }}>
-          <Card
-            sx={{
-              height: "100%",
-              background:
-                "linear-gradient(135deg, hsl(210, 100%, 95%) 0%, hsl(210, 100%, 92%) 100%)",
-              borderRadius: 2,
-              border: "1px solid",
-              borderColor: "primary.light",
-              boxShadow: "0 4px 20px 0 rgba(0,0,0,0.08)",
-              transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-              "&:hover": {
-                transform: "translateY(-4px)",
-                boxShadow: "0 8px 30px 0 rgba(33, 150, 243, 0.15)",
-              },
-            }}
-          >
-            <CardContent sx={{ p: 3 }}>
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                  <Box
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 2,
-                      backgroundColor: "primary.main",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <PeopleIcon sx={{ fontSize: 28, color: "white" }} />
-                  </Box>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{
-                      color: "primary.dark",
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.5,
-                      fontSize: "0.75rem",
-                    }}
-                  >
-                    Merits Assigned
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography
-                    variant="h3"
-                    sx={{
-                      color: "primary.dark",
-                      fontWeight: 700,
-                      mb: 0.5,
-                    }}
-                  >
-                    {loading ? (
-                      <CircularProgress
-                        size={30}
-                        sx={{ color: "primary.main" }}
-                      />
-                    ) : (
-                      employeesWithMerit2025
-                    )}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: "text.secondary",
-                      fontSize: "0.875rem",
-                    }}
-                  >
-                    Out of {totalActiveEmployees} employees
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
       </Grid>
 
       {/* Action Buttons - Outside Table */}
@@ -1067,19 +1161,19 @@ const HRDashboard = ({ user }) => {
         {/* Delete and Reset Buttons */}
         <Box sx={{ display: "flex", gap: 2 }}>
           <Button
-            variant="outlined"
+            variant="contained"
             color="error"
             size="large"
             startIcon={<DeleteIcon />}
             onClick={() => setDeleteDialogOpen(true)}
             disabled={deleteLoading}
+            disableElevation
             sx={{
               px: 3,
               py: 1.5,
               fontWeight: 600,
-              borderWidth: 2,
               "&:hover": {
-                borderWidth: 2,
+                backgroundColor: "error.main",
               },
             }}
           >
@@ -1087,7 +1181,6 @@ const HRDashboard = ({ user }) => {
           </Button>
           <Button
             variant="outlined"
-            color="warning"
             size="large"
             startIcon={<RestartAltIcon />}
             onClick={() => setResetDialogOpen(true)}
@@ -1097,12 +1190,16 @@ const HRDashboard = ({ user }) => {
               py: 1.5,
               fontWeight: 600,
               borderWidth: 2,
+              borderColor: "#ff9800",
+              color: "#ff9800",
               "&:hover": {
                 borderWidth: 2,
+                borderColor: "#f57c00",
+                backgroundColor: "rgba(255, 152, 0, 0.04)",
               },
             }}
           >
-            Reset All Merit Data
+            Reset Merit Approval Chain
           </Button>
         </Box>
 
@@ -1162,7 +1259,7 @@ const HRDashboard = ({ user }) => {
                 color="text.secondary"
                 sx={{ mt: 0.5 }}
               >
-                {fullyApprovedCount}/{totalEmployees} employee's approval has
+                {fullyApprovedCount}/{employees.length} employee's approval has
                 been completed
               </Typography>
               {selectedSupervisor && (
@@ -1257,6 +1354,34 @@ const HRDashboard = ({ user }) => {
                 <MenuItem value="inactive">Inactive</MenuItem>
               </TextField>
 
+              {/* Approvals Filter */}
+              <TextField
+                select
+                size="small"
+                label="Approvals"
+                value={selectedApprovalStatus}
+                onChange={(e) => setSelectedApprovalStatus(e.target.value)}
+                sx={{ minWidth: 150 }}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="pending">Pending</MenuItem>
+                <MenuItem value="completed">Completed</MenuItem>
+              </TextField>
+
+              {/* Merit Assignment Filter */}
+              <TextField
+                select
+                size="small"
+                label="Merit Assignment"
+                value={selectedMeritAssignment}
+                onChange={(e) => setSelectedMeritAssignment(e.target.value)}
+                sx={{ minWidth: 170 }}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="pending">Pending</MenuItem>
+                <MenuItem value="completed">Completed</MenuItem>
+              </TextField>
+
               {/* Search Bar */}
               <TextField
                 size="small"
@@ -1285,10 +1410,10 @@ const HRDashboard = ({ user }) => {
             paginationMode="client"
             initialState={{
               pagination: {
-                paginationModel: { pageSize: 10, page: 0 },
+                paginationModel: { pageSize: 12, page: 0 },
               },
             }}
-            pageSizeOptions={[10, 25, 50, 100, 150, 200]}
+            pageSizeOptions={[10, 12, 25, 50, 100, 150, 200]}
             disableRowSelectionOnClick
             sx={{
               border: 0,
@@ -1562,12 +1687,38 @@ const HRDashboard = ({ user }) => {
                 </Typography>
               </Box>
 
-              <Box sx={{ textAlign: "center", width: "100%", mt: 2 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
+              {/* Legend Style */}
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 3,
+                  mt: 2,
+                  justifyContent: "center",
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  {/* <Box
+                    sx={{
+                      width: 15,
+                      height: 15,
+                      borderRadius: "3px",
+                      bgcolor: "#2196f3",
+                    }}
+                  /> */}
+                  <Typography variant="body2">
                     Budget: 3%
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  {/* <Box
+                    sx={{
+                      width: 15,
+                      height: 15,
+                      borderRadius: "3px",
+                      bgcolor: teamAverageMerit - 3 > 0 ? "#f44336" : teamAverageMerit - 3 < 0 ? "#ff9800" : "#4caf50",
+                    }}
+                  /> */}
+                  <Typography variant="body2">
                     Actual: {teamAverageMerit.toFixed(2)}%
                   </Typography>
                 </Box>

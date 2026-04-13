@@ -65,8 +65,10 @@ const Employees = () => {
       const response = await api.get("/v2/employees");
       const { data } = response;
 
-      setEmployees(data.data);
-      setFilteredEmployees(data.data);
+      // Filter out HR account from all displays and calculations
+      const filteredData = data.data.filter(emp => emp.email !== "hr@pvschemicals.com");
+      setEmployees(filteredData);
+      setFilteredEmployees(filteredData);
     } catch (err) {
       const errorMessage =
         err.response?.data?.message ||

@@ -21,6 +21,7 @@ import {
   deleteAllEmployees,
   resetMeritData,
   modifyAndApproveMerit,
+  resetSupervisorMeritData,
 } from "../../controllers/v2/employeeController.js";
 import { protect } from "../../middlewares/auth.js";
 
@@ -30,6 +31,7 @@ const router = Router();
 router.get("/approvals/my-approvals", getMyApprovals);
 router.get("/supervisor/my-team", getMySupervisedEmployees);
 router.post("/supervisor/submit-for-approval", submitBonusesForApproval);
+router.post("/supervisor/reset-merits", resetSupervisorMeritData);
 
 // Bonus approval routes
 router.get("/bonus-approvals/my-approvals", getMyBonusApprovals);

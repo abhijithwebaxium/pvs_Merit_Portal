@@ -152,6 +152,14 @@ const MeritTimelineModal = ({ open, onClose, employee }) => {
               <strong>Salary Type:</strong> {employee.salaryType || "N/A"}
             </Typography>
             <Typography variant="body2" color="text.secondary">
+              <strong>
+                Current {employee.salaryType === "Hourly" ? "Hourly Rate" : "Annual Salary"}:
+              </strong>{" "}
+              {employee.salaryType === "Hourly"
+                ? `$${(employee.hourlyPayRate || 0).toFixed(2)}/hr`
+                : `$${(employee.annualSalary || 0).toLocaleString()}`}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
               <strong>Current Merit:</strong>{" "}
               {employee.salaryType === "Hourly"
                 ? `$${(employee.meritIncreaseDollar || 0).toFixed(2)}/hr`

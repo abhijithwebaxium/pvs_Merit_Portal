@@ -434,19 +434,29 @@ const Approvals = () => {
       renderCell: (params) => {
         if (params.row.salaryType === "Hourly") {
           const merit = params.row.meritIncreaseDollar || 0;
-          return merit > 0 ? `$${merit.toFixed(2)}/hr` : "-";
+          return (
+            <Typography sx={{ fontWeight: 700, fontSize: "0.875rem" }}>
+              {merit > 0 ? `$${merit.toFixed(2)}/hr` : "-"}
+            </Typography>
+          );
         } else {
           const merit = params.row.meritIncreasePercentage || 0;
           const annualSalary = params.row.annualSalary || 0;
-          if (merit === 0) return "-";
+          if (merit === 0) {
+            return (
+              <Typography sx={{ fontWeight: 700, fontSize: "0.875rem" }}>
+                -
+              </Typography>
+            );
+          }
           // Calculate dollar amount from percentage
           const dollarAmount = (annualSalary * merit) / 100;
           return (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
-              <Typography sx={{ fontWeight: "bold", fontSize: "0.875rem" }}>
+              <Typography sx={{ fontWeight: 700, fontSize: "0.875rem" }}>
                 {merit}%
               </Typography>
-              <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
+              <Typography sx={{ fontWeight: 700, fontSize: "0.7rem", color: "text.secondary" }}>
                 (${dollarAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
               </Typography>
             </Box>
@@ -1064,8 +1074,8 @@ const Approvals = () => {
               <span>
                 <IconButton
                   size="small"
-                  color="success"
                   disabled={!canPerformAction}
+                  sx={{ color: canPerformAction ? "green" : "inherit" }}
                   onClick={() =>
                     handleOpenApprovalDialog(params.row, level, "approve")
                   }
@@ -1078,8 +1088,8 @@ const Approvals = () => {
               <span>
                 <IconButton
                   size="small"
-                  color="error"
                   disabled={!canPerformAction}
+                  sx={{ color: canPerformAction ? "red" : "inherit" }}
                   onClick={() =>
                     handleOpenApprovalDialog(params.row, level, "reject")
                   }
@@ -1092,8 +1102,8 @@ const Approvals = () => {
               <span>
                 <IconButton
                   size="small"
-                  color="warning"
                   disabled={!canPerformAction}
+                  sx={{ color: canPerformAction ? "blue" : "inherit" }}
                   onClick={() => {
                     setModifyModal({
                       open: true,
@@ -1110,7 +1120,7 @@ const Approvals = () => {
               <span>
                 <IconButton
                   size="small"
-                  color="info"
+                  sx={{ color: "orange" }}
                   onClick={() => {
                     setTimelineModal({
                       open: true,
@@ -1284,6 +1294,7 @@ const Approvals = () => {
     let rejected = 0;
     let totalBudget = 0;
     let totalSalaryBase = 0;
+    let meritsAssigned = 0;
 
     companyEmployees.forEach((emp) => {
       const status = emp.approvalStatus?.[`level${emp.currentPendingLevel}`]?.status || "pending";
@@ -1295,6 +1306,13 @@ const Approvals = () => {
       } else {
         pending++;
       }
+
+      const isMeritEntered = !!(
+        emp.approvalStatus?.enteredBy ||
+        (emp.salaryType === "Hourly" && emp.meritIncreaseDollar && parseFloat(emp.meritIncreaseDollar) > 0) ||
+        (emp.salaryType !== "Hourly" && emp.meritIncreasePercentage && parseFloat(emp.meritIncreasePercentage) > 0)
+      );
+      if (isMeritEntered) meritsAssigned++;
 
       // Calculate budget
       if (emp.salaryType === "Hourly") {
@@ -1319,6 +1337,7 @@ const Approvals = () => {
     return {
       company,
       total: companyEmployees.length,
+      meritsAssigned,
       pending,
       approved,
       rejected,
@@ -1369,7 +1388,7 @@ const Approvals = () => {
           >
             Click here
           </Box>{" "}
-          to assign their merit so that they can be sent for review.
+          to assign merit of employees under you so that they can be sent for review.
         </Typography>
       )}
 
@@ -1430,14 +1449,14 @@ const Approvals = () => {
 
                     <Box sx={{ mb: 2 }}>
                       <Typography variant="body2" color="text.secondary">
-                        Total Employees
+                        Employee merit assigned
                       </Typography>
                       <Typography variant="h4" sx={{ fontWeight: "bold" }}>
-                        {stat.total}
+                        {stat.meritsAssigned}/{stat.total}
                       </Typography>
                     </Box>
 
-                    <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap" }}>
+                    <Box sx={{ display: "flex", gap: 1, mb: 1, flexWrap: "wrap" }}>
                       <Chip
                         label={`Pending: ${stat.pending}`}
                         size="small"
@@ -1458,22 +1477,23 @@ const Approvals = () => {
                       />
                     </Box>
 
-                    <Box sx={{ mb: 1 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        Avg Merit Increase
-                      </Typography>
-                      <Typography variant="h6" sx={{ fontWeight: "bold", color: "secondary.main" }}>
-                        {stat.avgMerit.toFixed(2)}%
-                      </Typography>
-                    </Box>
-
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Total Merit Budget
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: "bold" }}>
-                        ${stat.totalBudget.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Typography>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", mt: 2 }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Avg Merit Increase
+                        </Typography>
+                        <Typography variant="h6" sx={{ fontWeight: "bold", color: "secondary.main", lineHeight: 1.2 }}>
+                          {stat.avgMerit.toFixed(2)}%
+                        </Typography>
+                      </Box>
+                      <Box sx={{ textAlign: "right" }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Total Merit Budget
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: "bold" }}>
+                          ${stat.totalBudget.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </Box>
                     </Box>
                   </CardContent>
                 </Card>
@@ -1494,7 +1514,7 @@ const Approvals = () => {
           }}
         >
           <Typography variant="h4" component="div" sx={{ mb: 2 }}>
-            Approval Requests
+            Approval Requests{selectedCompany ? ` - ${selectedCompany}` : ""}
           </Typography>
 
           {/* Status Chips and Bonus Aggregates */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Box,
   Typography,
@@ -21,9 +21,11 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PendingIcon from "@mui/icons-material/Pending";
 import CancelIcon from "@mui/icons-material/Cancel";
 import CommentIcon from "@mui/icons-material/Comment";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import { useSelector } from "react-redux";
 import { selectUser } from "../../store/slices/userSlice";
 import api from "../../utils/api";
+import ConfirmDialog from "../../components/modals/ConfirmDialog";
 
 const Merits = () => {
   const user = useSelector(selectUser);
@@ -45,6 +47,13 @@ const Merits = () => {
   const [savingRows, setSavingRows] = useState({});
   // State for tracking which rows have been successfully saved (show checkmark)
   const [savedRows, setSavedRows] = useState({});
+
+  // Ref to store debounce timers for each employee
+  const debounceTimers = useRef({});
+
+  // Reset dialog state
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Remarks dialog state
   const [remarksDialog, setRemarksDialog] = useState({
@@ -98,6 +107,13 @@ const Merits = () => {
       checkmarkTimers.forEach(clearTimeout);
     };
   }, [savedRows]);
+
+  // Cleanup debounce timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(debounceTimers.current).forEach(clearTimeout);
+    };
+  }, []);
 
   const handleOpenMeritDialog = (employee) => {
     setMeritDialog({
@@ -162,17 +178,6 @@ const Merits = () => {
 
   // Inline save function - saves immediately on change
   const handleInlineSave = async (employeeId, value, remarks = null) => {
-    // Allow empty value to clear merit
-    if (value === "" || value === null || value === undefined) {
-      // Clear the inline value but don't save
-      setInlineValues((prev) => {
-        const newValues = { ...prev };
-        delete newValues[employeeId];
-        return newValues;
-      });
-      return;
-    }
-
     if (parseFloat(value) < 0) {
       setError("Please enter a valid merit amount");
       return;
@@ -192,10 +197,20 @@ const Merits = () => {
 
       // Build payload based on employee type
       const payload = {};
-      if (employee.salaryType === "Hourly") {
-        payload.meritIncreaseDollar = parseFloat(value);
+
+      // Handle empty/cleared values - send 0 to clear the merit
+      if (value === "" || value === null || value === undefined) {
+        if (employee.salaryType === "Hourly") {
+          payload.meritIncreaseDollar = 0;
+        } else {
+          payload.meritIncreasePercentage = 0;
+        }
       } else {
-        payload.meritIncreasePercentage = parseFloat(value);
+        if (employee.salaryType === "Hourly") {
+          payload.meritIncreaseDollar = parseFloat(value);
+        } else {
+          payload.meritIncreasePercentage = parseFloat(value);
+        }
       }
 
       // Add remarks if provided
@@ -203,14 +218,28 @@ const Merits = () => {
         payload.remarks = remarks;
       }
 
-      await api.put(
+      const response = await api.put(
         `/v2/employees/${employeeId}/merit?supervisorId=${userId}`,
         payload,
       );
 
-      // Refresh the employee list
-      await fetchMyTeam();
-      // Clear inline value after save
+      // Update the employee in the local state instead of refetching all employees
+      const savedValue = value === "" || value === null || value === undefined ? 0 : parseFloat(value);
+      setEmployees((prevEmployees) =>
+        prevEmployees.map((emp) =>
+          emp.id === employeeId
+            ? {
+                ...emp,
+                meritIncreaseDollar: employee.salaryType === "Hourly" ? savedValue : emp.meritIncreaseDollar,
+                meritIncreasePercentage: employee.salaryType === "Hourly" ? emp.meritIncreasePercentage : savedValue,
+                // Update other fields from response if available
+                ...(response.data?.data || {}),
+              }
+            : emp
+        )
+      );
+
+      // Clear inline value after save so it shows the saved value
       setInlineValues((prev) => {
         const newValues = { ...prev };
         delete newValues[employeeId];
@@ -235,7 +264,7 @@ const Merits = () => {
     }
   };
 
-  // Input handler - saves immediately on change
+  // Input handler - debounces save to allow typing complete values like "1.5"
   const handleInlineChange = (employeeId, value) => {
     // Update the inline value immediately for real-time calculation
     setInlineValues((prev) => ({
@@ -243,21 +272,36 @@ const Merits = () => {
       [employeeId]: value,
     }));
 
-    // Save immediately on change if value is valid
-    if (value && parseFloat(value) >= 0) {
-      handleInlineSave(employeeId, value);
+    // Clear any existing timer for this employee
+    if (debounceTimers.current[employeeId]) {
+      clearTimeout(debounceTimers.current[employeeId]);
+      delete debounceTimers.current[employeeId];
     }
+
+    // Set a new timer to save after user stops typing (800ms delay)
+    // This includes empty values to properly clear merits
+    debounceTimers.current[employeeId] = setTimeout(() => {
+      // Save valid numbers or empty values (to clear)
+      if (value === "" || value === null || value === undefined) {
+        handleInlineSave(employeeId, value);
+      } else if (parseFloat(value) >= 0) {
+        handleInlineSave(employeeId, value);
+      }
+    }, 800);
   };
 
   // Calculate new salary based on current or inline value
   const calculateNewSalary = (employee, inlineValue) => {
-    const meritValue = inlineValue !== undefined && inlineValue !== ""
+    // If inline value is explicitly empty string, return null (don't fall back to saved value)
+    if (inlineValue === "") return null;
+
+    const meritValue = inlineValue !== undefined
       ? parseFloat(inlineValue)
       : (employee.salaryType === "Hourly"
           ? parseFloat(employee.meritIncreaseDollar) || 0
           : parseFloat(employee.meritIncreasePercentage) || 0);
 
-    if (!meritValue || meritValue === 0) return null;
+    if (!meritValue || meritValue === 0 || isNaN(meritValue)) return null;
 
     if (employee.salaryType === "Hourly") {
       const currentRate = parseFloat(employee.hourlyPayRate) || 0;
@@ -270,11 +314,14 @@ const Merits = () => {
 
   // Handle opening remarks dialog
   const handleOpenRemarksDialog = (employee) => {
+    // Get existing remarks from the employee's approval status or merit data
+    const existingRemarks = employee.approvalStatus?.remarks || employee.remarks || "";
+
     setRemarksDialog({
       open: true,
       employeeId: employee.id,
       employeeName: employee.fullName,
-      remarks: "",
+      remarks: existingRemarks,
     });
   };
 
@@ -307,7 +354,8 @@ const Merits = () => {
           ? employee.meritIncreaseDollar || ""
           : employee.meritIncreasePercentage || "");
 
-    if (!currentValue || parseFloat(currentValue) <= 0) {
+    // Allow adding/updating remarks even if merit is 0, as long as there's a value
+    if (currentValue === "" || currentValue === null || currentValue === undefined) {
       setError("Please assign a merit value before adding remarks");
       return;
     }
@@ -319,13 +367,16 @@ const Merits = () => {
 
   // Calculate variance from 3% based on current or inline value
   const calculateVariance = (employee, inlineValue) => {
-    const meritValue = inlineValue !== undefined && inlineValue !== ""
+    // If inline value is explicitly empty string, return null (don't fall back to saved value)
+    if (inlineValue === "") return null;
+
+    const meritValue = inlineValue !== undefined
       ? parseFloat(inlineValue)
       : (employee.salaryType === "Hourly"
           ? parseFloat(employee.meritIncreaseDollar) || 0
           : parseFloat(employee.meritIncreasePercentage) || 0);
 
-    if (!meritValue || meritValue === 0) return null;
+    if (!meritValue || meritValue === 0 || isNaN(meritValue)) return null;
 
     if (employee.salaryType === "Hourly") {
       const currentRate = parseFloat(employee.hourlyPayRate) || 0;
@@ -359,6 +410,34 @@ const Merits = () => {
       setError(errorMessage);
     } finally {
       setProceedingForApproval(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setResetLoading(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const userId = user?.id || user?._id;
+
+      const response = await api.post(
+        `/v2/employees/supervisor/reset-merits?supervisorId=${userId}`,
+      );
+
+      setSuccess(response.data.message);
+      await fetchMyTeam();
+      setInlineValues({});
+      setResetDialogOpen(false);
+    } catch (err) {
+      const errorMessage =
+        err.response?.data?.message ||
+        err.message ||
+        "An error occurred while resetting merits";
+      setError(errorMessage);
+    } finally {
+      setResetLoading(false);
+      setResetDialogOpen(false);
     }
   };
 
@@ -473,7 +552,7 @@ const Merits = () => {
     return "All Approved";
   };
 
-  const columns = [
+  const columns = useMemo(() => [
     {
       field: "slNo",
       headerName: "Sl No",
@@ -502,7 +581,7 @@ const Merits = () => {
     },
     {
       field: "salaryType",
-      headerName: "Salary Type",
+      headerName: "Pay Type",
       width: 130,
       minWidth: 120,
       flex: 0.7,
@@ -510,7 +589,7 @@ const Merits = () => {
     },
     {
       field: "currentSalary",
-      headerName: "Current Salary",
+      headerName: "Current Pay",
       width: 150,
       minWidth: 130,
       flex: 0.8,
@@ -526,10 +605,10 @@ const Merits = () => {
     },
     {
       field: "meritIncrease",
-      headerName: "Merit Increase",
-      width: 200,
-      minWidth: 180,
-      flex: 1,
+      headerName: "Increase rate (% or $)",
+      width: 240,
+      minWidth: 220,
+      flex: 1.2,
       renderCell: (params) => {
         const isSubmitted = params.row.approvalStatus?.submittedForApproval;
 
@@ -574,7 +653,7 @@ const Merits = () => {
               justifyContent: "center",
               width: "100%",
               height: "100%",
-              gap: 1,
+              gap: 0.5,
             }}
           >
             <TextField
@@ -599,15 +678,25 @@ const Merits = () => {
                 step: params.row.salaryType === "Hourly" ? "0.01" : "0.1",
                 min: "0",
               }}
-              sx={{ width: "100%" }}
+              sx={{ flex: 1 }}
             />
+            <Tooltip title="Add remarks for this merit assignment">
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={() => handleOpenRemarksDialog(params.row)}
+                sx={{ p: 0.5 }}
+              >
+                <CommentIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Box>
         );
       },
     },
     {
       field: "newSalary",
-      headerName: "New Salary",
+      headerName: "New pay after increase",
       width: 150,
       minWidth: 130,
       flex: 0.8,
@@ -627,7 +716,7 @@ const Merits = () => {
     },
     {
       field: "variance",
-      headerName: "Variance from 3%",
+      headerName: "Variance vs budget",
       width: 180,
       minWidth: 160,
       flex: 1,
@@ -650,42 +739,6 @@ const Merits = () => {
               {label}
             </Typography>
           </Box>
-        );
-      },
-    },
-    {
-      field: "remarks",
-      headerName: "Remarks",
-      width: 120,
-      minWidth: 100,
-      flex: 0.6,
-      sortable: false,
-      renderCell: (params) => {
-        const isSubmitted = params.row.approvalStatus?.submittedForApproval;
-
-        // Disable for submitted employees
-        if (isSubmitted) {
-          return (
-            <Tooltip title="Cannot add remarks after submission">
-              <span>
-                <IconButton size="small" disabled>
-                  <CommentIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-          );
-        }
-
-        return (
-          <Tooltip title="Add remarks for this merit assignment">
-            <IconButton
-              size="small"
-              color="primary"
-              onClick={() => handleOpenRemarksDialog(params.row)}
-            >
-              <CommentIcon />
-            </IconButton>
-          </Tooltip>
         );
       },
     },
@@ -780,7 +833,7 @@ const Merits = () => {
     //     );
     //   },
     // },
-  ];
+  ], [employees, inlineValues, savingRows, savedRows, handleInlineChange, handleOpenRemarksDialog]);
 
   // Check if any employee has merits submitted for approval
   const hasSubmittedMerits = employees.some(
@@ -862,7 +915,7 @@ const Merits = () => {
         }}
       >
         <Typography component="h2" variant="h6">
-          Assign Employee Merits
+          Merit Increase Allocation
         </Typography>
 
         <Box
@@ -973,26 +1026,43 @@ const Merits = () => {
           </Box>
 
           {unsubmittedEmployees.length > 0 && (
-            <Button
-              variant="contained"
-              color="success"
-              onClick={handleProceedForApproval}
-              disabled={proceedingForApproval || !allUnsubmittedHaveMerits}
-              sx={{
-                color: "#FFFFFF",
-                fontWeight: "bold",
-                px: 3,
-                py: 1,
-                alignSelf: "flex-end",
-                "&.Mui-disabled": {
+            <Box sx={{ display: "flex", gap: 2, alignSelf: "flex-end" }}>
+              <Button
+                variant="outlined"
+                color="warning"
+                onClick={() => setResetDialogOpen(true)}
+                disabled={resetLoading || proceedingForApproval}
+                startIcon={<RestartAltIcon />}
+                sx={{
+                  fontWeight: "bold",
+                  px: 2,
+                  py: 1,
+                  borderWidth: 2,
+                  "&:hover": { borderWidth: 2 },
+                }}
+              >
+                Reset
+              </Button>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={handleProceedForApproval}
+                disabled={proceedingForApproval || !allUnsubmittedHaveMerits}
+                sx={{
                   color: "#FFFFFF",
-                  opacity: 0.7,
-                  backgroundColor: "rgba(0, 0, 0, 0.12)",
-                },
-              }}
-            >
-              {proceedingForApproval ? "Submitting..." : "Proceed for Approval"}
-            </Button>
+                  fontWeight: "bold",
+                  px: 3,
+                  py: 1,
+                  "&.Mui-disabled": {
+                    color: "#FFFFFF",
+                    opacity: 0.7,
+                    backgroundColor: "rgba(0, 0, 0, 0.12)",
+                  },
+                }}
+              >
+                {proceedingForApproval ? "Submitting..." : "Submit for approval"}
+              </Button>
+            </Box>
           )}
         </Box>
       </Box>
@@ -1001,8 +1071,8 @@ const Merits = () => {
         {unsubmittedEmployees.length === 0
           ? "All merits have been submitted for approval and are now locked. You cannot edit them until the approval process is complete."
           : allUnsubmittedHaveMerits
-            ? "All pending employees have merits assigned. Click 'Proceed for Approval' to submit them for the approval process."
-            : "As a supervisor, you can enter and update merit amounts for employees under your supervision. You must assign merits to ALL employees before you can proceed for approval."}
+            ? "All pending employees have merits assigned. Click 'Submit for approval' to submit them for the approval process."
+            : "As a supervisor, you can enter and update merit amounts for employees under your supervision. You must assign merits to ALL employees before you can submit for approval."}
       </Typography>
 
       {error && (
@@ -1069,7 +1139,7 @@ const Merits = () => {
         fullWidth
       >
         <DialogTitle>
-          Add Remarks for {remarksDialog.employeeName}
+          {remarksDialog.remarks ? "Edit" : "Add"} Remarks for {remarksDialog.employeeName}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
@@ -1079,7 +1149,7 @@ const Merits = () => {
               rows={4}
               fullWidth
               label="Remarks"
-              placeholder="Enter your remarks for this merit assignment (optional but recommended)"
+              placeholder="Enter your remarks for this merit assignment"
               value={remarksDialog.remarks}
               onChange={(e) => setRemarksDialog((prev) => ({ ...prev, remarks: e.target.value }))}
               helperText="These remarks will appear in the merit history timeline"
@@ -1096,10 +1166,22 @@ const Merits = () => {
             color="primary"
             disabled={!remarksDialog.remarks.trim()}
           >
-            Save Remarks
+            {remarksDialog.remarks ? "Update" : "Save"} Remarks
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* Reset Confirmation Dialog */}
+      <ConfirmDialog
+        open={resetDialogOpen}
+        title="Reset All Merits"
+        message="Are you sure you want to reset all merit data for your team? This will clear all entered merit increases that have not been fully approved. This action cannot be undone."
+        onConfirm={handleReset}
+        onCancel={() => setResetDialogOpen(false)}
+        loading={resetLoading}
+        confirmText="Yes, Reset Merits"
+        confirmColor="warning"
+      />
     </Box>
   );
 };

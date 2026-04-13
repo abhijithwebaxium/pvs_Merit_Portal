@@ -388,7 +388,7 @@ export const updateEmployeeMerit = async (req, res, next) => {
   try {
     const Employee = getEmployeeModel();
     const { id } = req.params;
-    const { meritIncreasePercentage, meritIncreaseDollar } = req.body || {};
+    const { meritIncreasePercentage, meritIncreaseDollar, remarks } = req.body || {};
     const supervisorId =
       req.user?.userId ||
       req.user?.id ||
@@ -507,7 +507,7 @@ export const updateEmployeeMerit = async (req, res, next) => {
         employeeId: supervisor?.employeeId || "N/A",
       },
       salaryType: employee.salaryType,
-      comments: null,
+      comments: remarks || null,
     };
 
     if (isModification) {
@@ -525,9 +525,11 @@ export const updateEmployeeMerit = async (req, res, next) => {
     employee.newAnnualSalary = newAnnualSalary;
     employee.newHourlyRate = newHourlyRate;
     employee.approvalStatus = {
+      ...employee.approvalStatus,
       enteredBy: supervisorId,
       enteredAt: new Date(),
       submittedForApproval: false, // Reset so supervisor can re-submit
+      remarks: remarks !== undefined ? remarks : employee.approvalStatus?.remarks || null,
     };
     employee.meritHistory = history;
     await employee.save();
@@ -2511,6 +2513,50 @@ export const resetMeritData = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: `Successfully reset merit data for ${updateCount} employees. All merit increases, approvals, and history have been cleared.`,
+      resetCount: updateCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Reset supervisor's employees merit data (clear merits, approvals, and history only for their team)
+// @route   POST /api/v2/employees/supervisor/reset-merits
+// @access  Private (Supervisor)
+export const resetSupervisorMeritData = async (req, res, next) => {
+  try {
+    const Employee = getEmployeeModel();
+    const supervisorId =
+      req.user?.userId ||
+      req.user?.id ||
+      req.body?.supervisorId ||
+      req.query?.supervisorId;
+
+    if (!supervisorId || supervisorId === "undefined" || supervisorId === "null") {
+      return next(new AppError("Supervisor ID is required", 400));
+    }
+
+    const [updateCount] = await Employee.update(
+      {
+        meritIncreasePercentage: 0,
+        meritIncreaseDollar: 0,
+        newAnnualSalary: 0,
+        newHourlyRate: 0,
+        approvalStatus: null,
+        meritHistory: null,
+      },
+      {
+        where: {
+          supervisorId: supervisorId,
+          isActive: true,
+          id: { [Op.ne]: supervisorId }, // Exclude themselves
+        },
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully reset merit data for ${updateCount} employees.`,
       resetCount: updateCount,
     });
   } catch (error) {
