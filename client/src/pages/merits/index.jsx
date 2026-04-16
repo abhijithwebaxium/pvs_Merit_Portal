@@ -24,6 +24,7 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import CommentIcon from "@mui/icons-material/Comment";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ReplayIcon from "@mui/icons-material/Replay";
+import TimelineIcon from "@mui/icons-material/Timeline";
 import { useSelector } from "react-redux";
 import { selectUser } from "../../store/slices/userSlice";
 import api from "../../utils/api";
@@ -205,6 +206,27 @@ const Merits = () => {
       return;
     }
 
+    // Get the employee to check current merit value
+    const employee = employees.find((emp) => emp.id === employeeId);
+    if (!employee) return;
+
+    // Check if the merit value is being changed (not just remarks)
+    if (!isRemarkOnly && value !== "" && value !== null && value !== undefined) {
+      const currentMerit = employee.salaryType === "Hourly"
+        ? employee.meritIncreaseDollar
+        : employee.meritIncreasePercentage;
+
+      const newMerit = parseFloat(value);
+
+      // If the merit was already entered and the new value is the same, reject the save
+      if (employee.approvalStatus?.enteredBy && currentMerit !== null && currentMerit !== undefined) {
+        if (parseFloat(currentMerit) === newMerit) {
+          setError(`Merit value is already ${newMerit}${employee.salaryType === "Hourly" ? "/hr" : "%"}. Please enter a different value to modify.`);
+          return;
+        }
+      }
+    }
+
     setError("");
     setSuccess("");
 
@@ -248,18 +270,15 @@ const Merits = () => {
         payload,
       );
 
-      // Update the employee in the local state instead of refetching all employees
-      const savedValue = valueToSave !== null ? valueToSave : 0;
+      // Update the employee in the local state with the full response from backend
+      const updatedEmployeeData = response.data?.data;
+      console.log('📝 Updated employee data from server:', updatedEmployeeData);
+      console.log('📝 Remarks in response:', updatedEmployeeData?.approvalStatus?.remarks);
+
       setEmployees((prevEmployees) =>
         prevEmployees.map((emp) =>
           emp.id === employeeId
-            ? {
-                ...emp,
-                meritIncreaseDollar: employee.salaryType === "Hourly" ? savedValue : emp.meritIncreaseDollar,
-                meritIncreasePercentage: employee.salaryType === "Hourly" ? emp.meritIncreasePercentage : savedValue,
-                // Update other fields from response if available
-                ...(response.data?.data || {}),
-              }
+            ? updatedEmployeeData || emp  // Replace entire employee object with server response
             : emp
         )
       );
@@ -377,11 +396,27 @@ const Merits = () => {
 
   // Handle opening remarks dialog
   const handleOpenRemarksDialog = (employee) => {
+    console.log('🔍 Opening remarks dialog for employee:', employee.fullName);
+    console.log('🔍 Employee approvalStatus:', employee.approvalStatus);
+    console.log('🔍 Existing remarks:', employee.approvalStatus?.remarks, employee.remarks);
+
+    // Check merit history for remarks
+    if (employee.meritHistory && employee.meritHistory.length > 0) {
+      console.log('🔍 Merit history:', employee.meritHistory);
+      const latestEntry = employee.meritHistory[employee.meritHistory.length - 1];
+      console.log('🔍 Latest history entry:', latestEntry);
+      console.log('🔍 Latest history remarks/comments:', latestEntry.remarks, latestEntry.comments);
+    }
+
     // Get existing remarks from the employee's approval status or merit data
     const existingRemarks = employee.approvalStatus?.remarks || employee.remarks || "";
 
     // Check if merit is submitted for approval (read-only mode)
     const isSubmitted = employee.approvalStatus?.submittedForApproval;
+
+    console.log('🔍 isSubmitted:', isSubmitted, 'existingRemarks:', existingRemarks);
+    console.log('⚠️ NOTE: If isSubmitted is true, you can only VIEW remarks (read-only mode).');
+    console.log('⚠️ To EDIT remarks, the merit must NOT be submitted yet, or you need to use the Reset button.');
 
     setRemarksDialog({
       open: true,
@@ -758,12 +793,13 @@ const Merits = () => {
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
-                gap: 0.4,
+                gap: 0.5,
                 height: "100%",
                 width: "100%",
+                px: 1,
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Tooltip title="Merit rejected — click to review and resubmit" arrow>
                   <Chip
                     label="Rejected — Resubmit"
@@ -794,7 +830,6 @@ const Merits = () => {
                     sx={{
                       fontWeight: 600,
                       cursor: "pointer",
-                      alignSelf: "flex-start",
                       "&:hover": {
                         filter: "none",
                         bgcolor: "error.main",
@@ -807,25 +842,39 @@ const Merits = () => {
                     }}
                   />
                 </Tooltip>
-                <Tooltip title="View merit timeline and all remarks">
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      setTimelineModal({
-                        open: true,
-                        employee: params.row,
-                      });
-                    }}
-                    sx={{
-                      p: 0.5,
-                      color: 'primary.main'
-                    }}
-                  >
-                    <CommentIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", ml: "auto" }}>
+                  <Tooltip title="Add/view remarks">
+                    <IconButton
+                      size="small"
+                      onClick={() => handleOpenRemarksDialog(params.row)}
+                      sx={{
+                        p: 0.5,
+                        color: (params.row.approvalStatus?.remarks || params.row.remarks) ? 'primary.main' : 'action.active'
+                      }}
+                    >
+                      <CommentIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="View merit timeline">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setTimelineModal({
+                          open: true,
+                          employee: params.row,
+                        });
+                      }}
+                      sx={{
+                        p: 0.5,
+                        color: 'text.secondary'
+                      }}
+                    >
+                      <TimelineIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem", lineHeight: 1.2 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem", lineHeight: 1.2, pl: 0 }}>
                 from Level {rejectionInfo.rejectedLevel} · {rejectionInfo.rejectedBy}
               </Typography>
             </Box>
@@ -863,27 +912,30 @@ const Merits = () => {
               sx={{
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
+                justifyContent: "flex-start",
                 width: "100%",
                 height: "100%",
-                gap: 0.5,
+                gap: 1,
+                px: 1,
               }}
             >
-              <Box sx={{ flex: 1 }}>
+              <Box sx={{ flex: 1, display: "flex", alignItems: "center" }}>
                 {meritDisplay}
               </Box>
-              <Tooltip title="View remarks for this merit assignment">
-                <IconButton
-                  size="small"
-                  onClick={() => handleOpenRemarksDialog(params.row)}
-                  sx={{
-                    p: 0.5,
-                    color: (params.row.approvalStatus?.remarks || params.row.remarks) ? 'primary.main' : 'action.active'
-                  }}
-                >
-                  <CommentIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                <Tooltip title="View remarks for this merit assignment">
+                  <IconButton
+                    size="small"
+                    onClick={() => handleOpenRemarksDialog(params.row)}
+                    sx={{
+                      p: 0.5,
+                      color: (params.row.approvalStatus?.remarks || params.row.remarks) ? 'primary.main' : 'action.active'
+                    }}
+                  >
+                    <CommentIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             </Box>
           );
         }
@@ -920,10 +972,11 @@ const Merits = () => {
             sx={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: "flex-start",
               width: "100%",
               height: "100%",
-              gap: 0.5,
+              gap: 1,
+              px: 1,
             }}
           >
             <TextField
@@ -948,20 +1001,22 @@ const Merits = () => {
                 step: params.row.salaryType === "Hourly" ? "0.01" : "0.1",
                 min: "0",
               }}
-              sx={{ flex: 1 }}
+              sx={{ flex: 1, minWidth: "120px" }}
             />
-            <Tooltip title="Add remarks for this merit assignment">
-              <IconButton
-                size="small"
-                onClick={() => handleOpenRemarksDialog(params.row)}
-                sx={{
-                  p: 0.5,
-                  color: (params.row.approvalStatus?.remarks || params.row.remarks) ? 'primary.main' : 'action.active'
-                }}
-              >
-                <CommentIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+              <Tooltip title="Add remarks for this merit assignment">
+                <IconButton
+                  size="small"
+                  onClick={() => handleOpenRemarksDialog(params.row)}
+                  sx={{
+                    p: 0.5,
+                    color: (params.row.approvalStatus?.remarks || params.row.remarks) ? 'primary.main' : 'action.active'
+                  }}
+                >
+                  <CommentIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
           </Box>
         );
       },

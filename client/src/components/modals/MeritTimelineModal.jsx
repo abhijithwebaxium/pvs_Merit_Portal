@@ -49,6 +49,7 @@ const MeritTimelineModal = ({ open, onClose, employee }) => {
         return <Cancel />;
       case "modified_and_approved":
       case "modified_by_supervisor":
+      case "modified_by_hr":
         return <Edit />;
       case "resubmitted_and_approved":
         return <Send />;
@@ -70,6 +71,7 @@ const MeritTimelineModal = ({ open, onClose, employee }) => {
       case "submitted_for_approval":
         return "primary";
       case "modified_by_supervisor":
+      case "modified_by_hr":
         return "warning";
       default:
         return "grey";
@@ -91,6 +93,8 @@ const MeritTimelineModal = ({ open, onClose, employee }) => {
         return "Modified & Approved";
       case "modified_by_supervisor":
         return "Modified by Supervisor";
+      case "modified_by_hr":
+        return "Modified by HR";
       case "resubmitted_and_approved":
         return "Resubmitted & Approved";
       default:
