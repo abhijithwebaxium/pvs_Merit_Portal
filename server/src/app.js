@@ -61,18 +61,6 @@ app.get('/health', (req, res) => {
 import v2Routes from './routes/v2/index.js';
 app.use(v2Routes);
 
-// Debug: Log registered routes (will be called after server starts)
-app.logRoutes = () => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log('POST /api/v2/auth/login');
-    console.log('POST /api/v2/auth/logout');
-    console.log('GET /api/v2/auth/me');
-    console.log('GET /api/v2/branches');
-    console.log('GET /api/v2/employees');
-    console.log('========================================\n');
-  }
-};
-
 // Error handling
 app.use(notFound);
 app.use(errorHandler);

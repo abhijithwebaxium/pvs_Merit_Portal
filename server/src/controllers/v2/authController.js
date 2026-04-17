@@ -19,21 +19,13 @@ const checkPendingMeritAssignments = async (employeeId) => {
       },
     });
 
-    console.log(`🔍 Checking pending merits for supervisor ID: ${employeeId}`);
-    console.log(`🔍 Found ${employees.length} employees under supervision`);
-
     // Check if any employee has no merit assigned yet
     // An employee has pending merit assignment if enteredBy is null/undefined
     // (regardless of whether the merit values are 0 or null - 0 is just the default)
     const hasPendingAssignments = employees.some((emp) => {
       const hasNoMeritEntered = !emp.approvalStatus?.enteredBy;
-
-      console.log(`  - ${emp.fullName} (ID: ${emp.id}): percentage=${emp.meritIncreasePercentage}, dollar=${emp.meritIncreaseDollar}, enteredBy=${emp.approvalStatus?.enteredBy}, isPending=${hasNoMeritEntered}`);
-
       return hasNoMeritEntered;
     });
-
-    console.log(`✅ hasPendingMeritAssignments = ${hasPendingAssignments}`);
 
     return hasPendingAssignments;
   } catch (error) {

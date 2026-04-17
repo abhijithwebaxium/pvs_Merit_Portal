@@ -26,12 +26,7 @@ export const authenticateLDAP = async (email, password) => {
 
   try {
     // Step 1: Bind with admin credentials to search for the user
-    console.log('=== LDAP Authentication Start ===');
-    console.log('LDAP Server:', ldapServer);
-    console.log('Base DN:', baseDN);
-
     await client.bind(adminUser, adminPassword);
-    console.log('Admin bind successful');
 
     // Step 2: Search for user by email
     // Extract username from email (e.g., testuser3@lab.local -> testuser3)
@@ -41,11 +36,6 @@ export const authenticateLDAP = async (email, password) => {
     // Active Directory commonly uses userPrincipalName, mail, or sAMAccountName
     const searchFilter = `(|(userPrincipalName=${email})(mail=${email})(sAMAccountName=${username}))`;
 
-    console.log('=== LDAP Search ===');
-    console.log('Search Filter:', searchFilter);
-    console.log('Email:', email);
-    console.log('Username:', username);
-
     const searchOptions = {
       filter: searchFilter,
       scope: 'sub',
@@ -54,9 +44,6 @@ export const authenticateLDAP = async (email, password) => {
 
     const { searchEntries } = await client.search(baseDN, searchOptions);
 
-    console.log('=== LDAP Search Results ===');
-    console.log('Entries found:', searchEntries.length);
-
     if (searchEntries.length === 0) {
       await client.unbind();
       throw new Error('User not found in LDAP directory. Please check your email address.');
@@ -64,10 +51,6 @@ export const authenticateLDAP = async (email, password) => {
 
     const userEntry = searchEntries[0];
     const userDN = userEntry.dn;
-
-    console.log('=== Found User ===');
-    console.log('User DN:', userDN);
-    console.log('User Attributes:', userEntry);
 
     // Extract user info
     const userInfo = {
@@ -83,7 +66,6 @@ export const authenticateLDAP = async (email, password) => {
     await client.unbind();
 
     // Step 3: Try to bind with user's credentials to verify password
-    console.log('=== Verifying User Password ===');
     const userClient = new Client({
       url: ldapServer,
       timeout: 5000, // Reduced to 5 seconds
@@ -92,7 +74,6 @@ export const authenticateLDAP = async (email, password) => {
 
     try {
       await userClient.bind(userDN, password);
-      console.log('User authentication successful');
       await userClient.unbind();
 
       return {
@@ -100,7 +81,7 @@ export const authenticateLDAP = async (email, password) => {
         user: userInfo,
       };
     } catch (bindError) {
-      console.error('User bind error:', bindError.message);
+      console.error('LDAP user bind error:', bindError.message);
       await userClient.unbind();
       throw new Error('Invalid LDAP credentials');
     }

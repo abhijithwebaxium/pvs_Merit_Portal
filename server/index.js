@@ -28,10 +28,6 @@ import { PORT, NODE_ENV } from "./src/utils/constants.js";
     URL: http://localhost:${PORT}
     ========================================
   `);
-      // Log routes after server starts
-      if (typeof app.logRoutes === 'function') {
-        app.logRoutes();
-      }
     });
 
     // Handle unhandled promise rejections

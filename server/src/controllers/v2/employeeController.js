@@ -1545,25 +1545,41 @@ export const submitMeritsForApproval = async (req, res, next) => {
       );
     }
 
-    // Filter employees with merits entered but not yet submitted
-    const employeesToSubmit = employees.filter((emp) => {
+    // Separate employees into submitted and unsubmitted
+    const unsubmittedEmployees = employees.filter((emp) => {
       const status = emp.approvalStatus || {};
-      // Check if merit has been entered (either percentage or dollar amount > 0)
-      const hasMerit =
-        (emp.meritIncreasePercentage && emp.meritIncreasePercentage > 0) ||
-        (emp.meritIncreaseDollar && emp.meritIncreaseDollar > 0);
-      // Filter out those already submitted or with no merit
-      return !status.submittedForApproval && hasMerit;
+      return !status.submittedForApproval;
     });
 
-    if (employeesToSubmit.length === 0) {
+    // Check if there are any unsubmitted employees
+    if (unsubmittedEmployees.length === 0) {
       return next(
         new AppError(
-          "No merits available to submit. Please ensure merits are entered and not already submitted.",
+          "All employees have already been submitted for approval.",
           400,
         ),
       );
     }
+
+    // Check if ALL unsubmitted employees have merits entered
+    const employeesWithoutMerit = unsubmittedEmployees.filter((emp) => {
+      const status = emp.approvalStatus || {};
+      const hasMeritEntered = !!(status.enteredBy);
+      return !hasMeritEntered;
+    });
+
+    if (employeesWithoutMerit.length > 0) {
+      const employeeNames = employeesWithoutMerit.map(emp => emp.fullName).join(', ');
+      return next(
+        new AppError(
+          `Cannot submit for approval. Please assign merits to ALL employees first. Missing merits for: ${employeeNames}`,
+          400,
+        ),
+      );
+    }
+
+    // All unsubmitted employees have merits - proceed with submission
+    const employeesToSubmit = unsubmittedEmployees;
 
     // Get supervisor details for history logging
     const supervisor = await Employee.findByPk(supervisorId, {

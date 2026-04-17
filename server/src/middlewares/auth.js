@@ -71,8 +71,6 @@ export const authenticate = (req, res, next) => {
 export const authorize = (requiredRoles) => {
   return (req, res, next) => {
     try {
-      console.log(req.user);
-
       if (!req?.user?.isAuthenticated) {
         throw new AppError("Authentication required", 401);
       }
