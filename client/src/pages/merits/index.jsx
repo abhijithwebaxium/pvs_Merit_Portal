@@ -1317,7 +1317,7 @@ const Merits = () => {
                 variant="caption"
                 sx={{ color: "text.secondary", fontWeight: "medium" }}
               >
-                CUMULATIVE VARIANCE
+                Variance Threshold 
               </Typography>
               <Typography
                 variant="h5"
@@ -1338,7 +1338,7 @@ const Merits = () => {
                 variant="caption"
                 sx={{ color: "text.secondary", fontWeight: "medium" }}
               >
-                {budgetPercentage}% BUDGET POOL
+                {budgetPercentage}% Current available budget
               </Typography>
               <Typography
                 variant="h5"
@@ -1359,7 +1359,7 @@ const Merits = () => {
                 variant="caption"
                 sx={{ color: "text.secondary", fontWeight: "medium" }}
               >
-                TEAM AVERAGE MERIT
+                Cumulative Variance
               </Typography>
               <Typography
                 variant="h5"

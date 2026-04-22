@@ -437,6 +437,57 @@ const HRDashboard = ({ user }) => {
     };
   });
 
+  // Calculate approver merit statistics
+  const calculateApproverStats = () => {
+    const approverMap = new Map();
+
+    // Iterate through all employees
+    employees.forEach((emp) => {
+      // Check each approval level (1-5)
+      for (let level = 1; level <= 5; level++) {
+        const approverName = emp[`level${level}ApproverName`];
+
+        // Skip if no approver or approver is "Not Assigned" or "-"
+        if (!approverName || approverName === "Not Assigned" || approverName === "-") {
+          continue;
+        }
+
+        // Initialize approver stats if not exists
+        if (!approverMap.has(approverName)) {
+          approverMap.set(approverName, {
+            approverName,
+            approved: 0,
+            pending: 0,
+            rejected: 0,
+            total: 0,
+          });
+        }
+
+        const stats = approverMap.get(approverName);
+        const status = emp.approvalStatus?.[`level${level}`]?.status;
+
+        // Count based on status
+        if (status === "approved") {
+          stats.approved++;
+        } else if (status === "rejected") {
+          stats.rejected++;
+        } else {
+          // pending or no status
+          stats.pending++;
+        }
+        stats.total++;
+      }
+    });
+
+    // Convert map to array and add IDs
+    return Array.from(approverMap.values()).map((stats, index) => ({
+      id: stats.approverName,
+      ...stats,
+    }));
+  };
+
+  const approverStats = calculateApproverStats();
+
   // Calculate donut chart data - Merit allocation status
   const totalActiveEmployees = employees.filter((emp) => emp.isActive).length;
   const employeesWithMerit2025 = employees.filter(
@@ -635,6 +686,196 @@ const HRDashboard = ({ user }) => {
           </Box>
         </Box>
       ),
+    },
+  ];
+
+  // Approval Statistics columns with progress bars
+  const approvalStatsColumns = [
+    {
+      field: "slNo",
+      headerName: "SL. No",
+      width: 70,
+      renderCell: (params) => {
+        const rows = params.api.getAllRowIds();
+        return rows.indexOf(params.id) + 1;
+      },
+    },
+    {
+      field: "fullName",
+      headerName: "Employee Name",
+      flex: 1,
+      minWidth: 180,
+    },
+    {
+      field: "meritAmount",
+      headerName: "Merit",
+      width: 120,
+      renderCell: (params) => {
+        const emp = params.row;
+        if (emp.salaryType === "Hourly") {
+          return emp.meritIncreaseDollar
+            ? `$${parseFloat(emp.meritIncreaseDollar).toFixed(2)}/hr`
+            : "Not assigned";
+        } else {
+          return emp.meritIncreasePercentage ? `${emp.meritIncreasePercentage}%` : "Not assigned";
+        }
+      },
+    },
+    {
+      field: "approvalProgress",
+      headerName: "Approval Progress",
+      flex: 2,
+      minWidth: 450,
+      sortable: false,
+      renderCell: (params) => {
+        const emp = params.row;
+        const approvalLevels = [
+          { name: "Approver 1", approver: emp.level1ApproverName, status: emp.approvalStatus?.level1?.status },
+          { name: "Approver 2", approver: emp.level2ApproverName, status: emp.approvalStatus?.level2?.status },
+          { name: "Approver 3", approver: emp.level3ApproverName, status: emp.approvalStatus?.level3?.status },
+          { name: "Approver 4", approver: emp.level4ApproverName, status: emp.approvalStatus?.level4?.status },
+          { name: "Approver 5", approver: emp.level5ApproverName, status: emp.approvalStatus?.level5?.status },
+        ];
+
+        return (
+          <Box sx={{ width: "100%", py: 1 }}>
+            <Box sx={{ display: "flex", gap: 0.5, mb: 0.5 }}>
+              {approvalLevels.map((level, i) => {
+                const isActive = level.approver && level.approver !== "Not Assigned" && level.approver !== "-";
+                let bgColor = "#e0e0e0"; // light teal for not assigned
+                if (isActive) {
+                  if (level.status === "approved") {
+                    bgColor = "#4caf50"; // green
+                  } else if (level.status === "rejected") {
+                    bgColor = "#e11d48"; // red
+                  } else {
+                    bgColor = "#ffcc00"; // yellow for pending
+                  }
+                }
+
+                return (
+                  <Box
+                    key={i}
+                    sx={{
+                      flex: 1,
+                      height: 10,
+                      borderRadius: "2px",
+                      bgcolor: bgColor,
+                      position: "relative",
+                      overflow: "hidden",
+                      ...(isActive && level.status === "pending" && {
+                        animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+                        "@keyframes pulse": {
+                          "0%, 100%": { opacity: 1 },
+                          "50%": { opacity: 0.7 },
+                        },
+                      }),
+                    }}
+                  />
+                );
+              })}
+            </Box>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              {approvalLevels.map((level, i) => {
+                const isActive = level.approver && level.approver !== "Not Assigned" && level.approver !== "-";
+                const approverName = isActive ? level.approver : "No Approver";
+                return (
+                  <Box
+                    key={i}
+                    sx={{
+                      width: "20%",
+                      textAlign: "center",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 0.25,
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: "9px",
+                        color: "text.secondary",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.5,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {level.name}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: "8px",
+                        color: isActive ? "text.primary" : "#00897b",
+                        lineHeight: 1.2,
+                        fontWeight: 500,
+                      }}
+                    >
+                      {approverName}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+        );
+      },
+    },
+    {
+      field: "status",
+      headerName: "Status",
+      width: 120,
+      align: "center",
+      headerAlign: "center",
+      renderCell: (params) => {
+        const emp = params.row;
+        const approvalLevels = [
+          { approver: emp.level1ApproverName, status: emp.approvalStatus?.level1?.status },
+          { approver: emp.level2ApproverName, status: emp.approvalStatus?.level2?.status },
+          { approver: emp.level3ApproverName, status: emp.approvalStatus?.level3?.status },
+          { approver: emp.level4ApproverName, status: emp.approvalStatus?.level4?.status },
+          { approver: emp.level5ApproverName, status: emp.approvalStatus?.level5?.status },
+        ];
+
+        const activeApprovals = approvalLevels.filter(
+          (level) => level.approver && level.approver !== "Not Assigned" && level.approver !== "-"
+        );
+
+        const completedCount = activeApprovals.filter((level) => level.status === "approved").length;
+        const totalCount = activeApprovals.length;
+        const hasRejection = activeApprovals.some((level) => level.status === "rejected");
+
+        // Check if merit is assigned
+        const hasMerit = !!(
+          (emp.salaryType === "Hourly" && emp.meritIncreaseDollar && parseFloat(emp.meritIncreaseDollar) > 0) ||
+          (emp.salaryType !== "Hourly" && emp.meritIncreasePercentage && parseFloat(emp.meritIncreasePercentage) > 0)
+        );
+
+        let statusText = "In Progress";
+        let statusColor = "text.secondary";
+
+        if (completedCount === totalCount) {
+          statusText = "Complete";
+          statusColor = "success.main";
+        } else if (hasRejection) {
+          statusText = "Rejected";
+          statusColor = "error.main";
+        } else if (!hasMerit) {
+          statusText = "Not Started";
+          statusColor = "warning.main";
+        }
+
+        return (
+          <Box sx={{ textAlign: "center" }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: "text.primary", fontSize: "0.875rem" }}>
+              {completedCount}/{totalCount}
+            </Typography>
+            <Typography variant="caption" sx={{ color: statusColor, fontSize: "10px" }}>
+              {statusText}
+            </Typography>
+          </Box>
+        );
+      },
     },
   ];
 
@@ -1506,6 +1747,7 @@ const HRDashboard = ({ user }) => {
           flexDirection: { xs: "column !important", xl: "row !important" },
           gap: 3,
           alignItems: "stretch",
+          mb: 4,
         }}
       >
         {/* Supervisor Bonus Statistics Table */}
@@ -1820,6 +2062,115 @@ const HRDashboard = ({ user }) => {
           </Paper>
         </Box>
       </Box>
+
+      {/* Approval Statistics - Progress Bar View */}
+      <Paper
+        sx={{
+          width: "100%",
+          borderRadius: "16px",
+          overflow: "hidden",
+          boxShadow: "0px 4px 20px rgba(0, 0, 0, 0.05)",
+          border: "1px solid",
+          borderColor: "divider",
+          mb: 4,
+        }}
+      >
+        <Box sx={{ p: 2, borderBottom: "1px solid", borderColor: "divider" }}>
+          <Typography variant="h5" sx={{ fontWeight: 700, mt: 1 }}>
+            Approval Statistics
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Linear progress bars for quick scanning
+          </Typography>
+          <Box sx={{ display: "flex", gap: 3, mt: 2 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <CheckCircleIcon sx={{ fontSize: 16, color: "#4caf50" }} />
+              <Typography variant="caption">Approved</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 15,
+                  height: 15,
+                  borderRadius: "3px",
+                  bgcolor: "#fdcb00",
+                }}
+              />
+              <Typography variant="caption">Pending</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 15,
+                  height: 15,
+                  borderRadius: "3px",
+                  bgcolor: "#e11d48",
+                }}
+              />
+              <Typography variant="caption">Rejected</Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 15,
+                  height: 15,
+                  borderRadius: "3px",
+                  bgcolor: "#e0e0e0",
+                }}
+              />
+              <Typography variant="caption">No Approver</Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        <Box sx={{ height: 750, width: "100%" }}>
+          <DataGrid
+            rows={filteredEmployees.filter((emp) => {
+              // Filter employees that have at least one approver assigned
+              const hasApprover = !!(
+                (emp.level1ApproverName && emp.level1ApproverName !== "Not Assigned" && emp.level1ApproverName !== "-") ||
+                (emp.level2ApproverName && emp.level2ApproverName !== "Not Assigned" && emp.level2ApproverName !== "-") ||
+                (emp.level3ApproverName && emp.level3ApproverName !== "Not Assigned" && emp.level3ApproverName !== "-") ||
+                (emp.level4ApproverName && emp.level4ApproverName !== "Not Assigned" && emp.level4ApproverName !== "-") ||
+                (emp.level5ApproverName && emp.level5ApproverName !== "Not Assigned" && emp.level5ApproverName !== "-")
+              );
+              return hasApprover;
+            })}
+            columns={approvalStatsColumns}
+            getRowId={(row) => row.id}
+            loading={loading}
+            initialState={{
+              pagination: {
+                paginationModel: { pageSize: 8, page: 0 },
+              },
+            }}
+            pageSizeOptions={[5, 10, 15, 25, 50, 100]}
+            disableRowSelectionOnClick
+            getRowHeight={() => 'auto'}
+            sx={{
+              border: 0,
+              "& .MuiDataGrid-columnHeaders": {
+                backgroundColor: "background.paper",
+                borderBottom: "2px solid",
+                borderColor: "divider",
+              },
+              "& .MuiDataGrid-cell": {
+                borderBottom: "1px solid",
+                borderColor: "divider",
+                py: 2,
+                display: "flex",
+                alignItems: "center",
+              },
+              "& .MuiDataGrid-row": {
+                minHeight: "80px !important",
+              },
+              "& .MuiDataGrid-row:hover": {
+                backgroundColor: "action.hover",
+              },
+            }}
+          />
+        </Box>
+      </Paper>
 
       <EditEmployeeMeritModal
         open={openEditModal}

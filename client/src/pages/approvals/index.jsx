@@ -1645,7 +1645,7 @@ const Approvals = () => {
                     variant="caption"
                     sx={{ color: "text.secondary", fontWeight: "medium", fontSize: "0.65rem" }}
                   >
-                    CUMULATIVE VARIANCE
+                    Variance Threshold 
                   </Typography>
                   <Typography
                     variant="h6"
@@ -1666,7 +1666,7 @@ const Approvals = () => {
                     variant="caption"
                     sx={{ color: "text.secondary", fontWeight: "medium", fontSize: "0.65rem" }}
                   >
-                    {budgetPercentage}% BUDGET POOL
+                    {budgetPercentage}% Current available budget
                   </Typography>
                   <Typography
                     variant="h6"
@@ -1687,7 +1687,7 @@ const Approvals = () => {
                     variant="caption"
                     sx={{ color: "text.secondary", fontWeight: "medium", fontSize: "0.65rem" }}
                   >
-                    TEAM AVG MERIT
+                    Cumulative Variance
                   </Typography>
                   <Typography
                     variant="h6"
