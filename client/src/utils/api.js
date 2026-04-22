@@ -3,6 +3,8 @@ import API_URL from "../config/api";
 import store from "../store";
 import { logout } from "../store/slices/userSlice";
 
+console.log(API_URL, 'apiurl')
+
 const api = axios.create({
   baseURL: API_URL,
   withCredentials: true,
